@@ -1909,9 +1909,10 @@ function handleEnd(e) {
             $('code-output').textContent = css;
         }
 
-        function updateScrollBars() {
+function updateScrollBars() {
             const sx = $('scroll-x-slider');
             const sy = $('scroll-y-slider');
+            const vSliderWrapper = $('v-slider-wrapper');
 
             // スクロール可能最大値 = コンテンツサイズ * スケール - 表示エリアサイズ
             const maxW = (canvasWrapper.offsetWidth * currentScale) - viewerArea.clientWidth;
@@ -1920,8 +1921,19 @@ function handleEnd(e) {
             sx.max = Math.max(0, maxW);
             sy.max = Math.max(0, maxH);
 
-            // 垂直スライダーの幅をUIに合わせる
-            sy.style.width = ($('v-slider-wrapper').clientHeight - 20) + 'px';
+            // 画面幅でPC/モバイルを判定
+            const isMobile = window.matchMedia('(max-width: 900px)').matches;
+
+            if (isMobile) {
+                // モバイル: 水平表示なので幅を100%にリセットし、高さはCSSに任せる
+                sy.style.width = '100%'; 
+                sy.style.height = 'auto'; // 念のため高さをリセット
+            } else {
+                // PC: 垂直表示なので、ラッパーの高さを使って width を設定（回転で長さになる）
+                // -20px は上下の "↕" スパンのマージン分と推測
+                sy.style.width = (vSliderWrapper.clientHeight - 20) + 'px';
+                sy.style.height = 'auto'; // 高さもリセット
+            }
         }
 
         function updateZoom() {
