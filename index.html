@@ -615,7 +615,14 @@
                 </div>
 
                 <button id="btn-paste-img" disabled>読み込みモードで画像を貼付</button>
-
+                <hr style="margin:10px 0;">
+                <h3>ローカルストレージ (自動バックアップ)</h3>
+                <div class="input-group">
+                    <label><input type="checkbox" id="chk-auto-save"> 自動保存 ON/OFF (操作時にバックアップ)</label>
+                </div>
+                <p style="font-size:0.75rem; color:#999; margin-top:-5px; margin-bottom:5px;">※ブラウザの容量制限があるため、大きなデータは保存に失敗することがあります。下部Webp保存品質により保存データの品質を変えられます。保存データを読み込むと描画内容は上書きされます。</p>
+                <button id="btn-load-local" class="secondary" disabled>保存した状態を読込</button>
+                <button id="btn-clear-local" class="danger">ローカルストレージ全削除</button>
                 <hr style="margin:10px 0;">
 
                 <div class="input-group">
@@ -709,6 +716,9 @@
         let animInterval = null;
         let currentFrame = 0;
         let frameCoordinates = []; // フレームの座標を格納 [ {x, y, w, h}, ... ]
+
+                const LOCAL_STORAGE_KEY = 'ultimateSpriteToolState';
+        let isAutoSaving = false; // 自動保存の状態を保持
 
         // === DOM要素取得 ===
         const $ = (id) => document.getElementById(id);
@@ -920,6 +930,178 @@
 
             // スプレーオプションの表示切替
             $('spray-options').style.display = (name === 'spray') ? 'block' : 'none';
+        }
+        // ... (既存のコード: setupEventListeners の直前など、どこでも可)
+
+        // === ローカルストレージ保存関数 (画像データ含む) ===
+        function saveStateToLocal(showMsg = false) {
+            if (!isAutoSaving && !showMsg) return; // 自動保存OFFなら保存しない
+
+            // 1. 設定情報の収集
+            const state = {
+                canvasW: CANVAS_W, 
+                canvasH: CANVAS_H,
+                settings: {
+                    // キャンバスサイズ (入力値)
+                    inpW: inputs.w.value,
+                    inpH: inputs.h.value,
+                    // グリッド
+                    gridCols: inputs.gridCols.value,
+                    gridRows: inputs.gridRows.value,
+                    // 選択範囲
+                    selX: inputs.selX.value,
+                    selY: inputs.selY.value,
+                    selW: inputs.selW.value,
+                    selH: inputs.selH.value,
+                    // ツール設定
+                    currentTool: currentTool,
+                    currentShape: document.querySelector('input[name="shape"]:checked').value,
+                    color: inputs.color.value,
+                    opacity: inputs.opacity.value,
+                    brush: inputs.brush.value,
+                    sprayR: inputs.sprayR.value,
+                    sprayD: inputs.sprayD.value,
+                    // エフェクト
+                    mosaic: inputs.mosaic.value,
+                    tolerance: inputs.tolerance.value,
+                    effectTarget: document.querySelector('input[name="effect-target"]:checked').value,
+                    sym: document.querySelector('input[name="sym"]:checked').value,
+                    // チェックボックス
+                    chkPixelSnap: chkPixelSnap.checked,
+                    chkClipSel: chkClipSel.checked,
+                    chkSelAdd: chkSelAdd.checked,
+                    chkPasteFit: chkPasteFit.checked,
+                    chkTransformMode: chkTransformMode.checked,
+                    showFrameNumbers: showFrameNumbers,
+                    // ズーム・アニメーション
+                    zoom: inputs.zoom.value,
+                    quality: inputs.quality.value,
+                    fps: inputs.fps.value,
+                    startFrame: inputs.startFrame.value,
+                    endFrame: inputs.endFrame.value
+                }
+                // NOTE: 履歴情報は保存対象外
+            };
+
+            // 2. 画像データ (WebP Base64) の抽出
+            const quality = parseInt(inputs.quality.value) / 100;
+            // WebP Base64 エンコード文字列
+            try {
+                const imageDataURL = canvas.toDataURL('image/webp', quality);
+                state.imageData = imageDataURL;
+                
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+
+                $('btn-load-local').disabled = false;
+            } catch (e) {
+                console.error('ローカルストレージへの自動保存に失敗:', e.message);
+                if (showMsg) alert('エラー: ローカルストレージへの保存に失敗しました。容量不足かもしれません。\n' + e.message);
+            }
+        }
+
+        // === ローカルストレージ読み込み関数 ===
+        function loadStateFromLocal() {
+            const dataString = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (!dataString) {
+                alert('保存されたデータがありません。');
+                return;
+            }
+
+            if (!confirm('保存された状態を読み込みます。現在の作業内容は失われ、履歴もリセットされますがよろしいですか？')) return;
+
+            try {
+                const state = JSON.parse(dataString);
+                const settings = state.settings;
+
+                // 1. キャンバスサイズの変更と初期化
+                const newW = parseInt(state.canvasW);
+                const newH = parseInt(state.canvasH);
+                if (newW > 0 && newH > 0) {
+                    setupCanvas(newW, newH, true); // リセット = 履歴クリア
+                }
+
+                // 2. 設定の復元
+                inputs.w.value = settings.inpW;
+                inputs.h.value = settings.inpH;
+                inputs.gridCols.value = settings.gridCols;
+                inputs.gridRows.value = settings.gridRows;
+                inputs.selX.value = settings.selX;
+                inputs.selY.value = settings.selY;
+                inputs.selW.value = settings.selW;
+                inputs.selH.value = settings.selH;
+                inputs.color.value = settings.color;
+                inputs.opacity.value = settings.opacity;
+                inputs.brush.value = settings.brush;
+                inputs.sprayR.value = settings.sprayR;
+                inputs.sprayD.value = settings.sprayD;
+                inputs.mosaic.value = settings.mosaic;
+                inputs.tolerance.value = settings.tolerance;
+                inputs.zoom.value = settings.zoom;
+                inputs.quality.value = settings.quality;
+                inputs.fps.value = settings.fps;
+                inputs.startFrame.value = settings.startFrame;
+                inputs.endFrame.value = settings.endFrame;
+
+                // ラジオボタンの復元
+                document.querySelector(`input[name="shape"][value="${settings.currentShape}"]`).checked = true;
+                document.querySelector(`input[name="effect-target"][value="${settings.effectTarget}"]`).checked = true;
+                document.querySelector(`input[name="sym"][value="${settings.sym}"]`).checked = true;
+                
+                // チェックボックスの復元
+                chkPixelSnap.checked = settings.chkPixelSnap;
+                chkClipSel.checked = settings.chkClipSel;
+                chkSelAdd.checked = settings.chkSelAdd;
+                chkPasteFit.checked = settings.chkPasteFit;
+                chkTransformMode.checked = false; 
+                showFrameNumbers = settings.showFrameNumbers;
+                $('chk-auto-save').checked = isAutoSaving; // 読み込み前に保存状態は影響させない
+                
+                // ツールのアクティブ状態の復元
+                setTool(settings.currentTool);
+
+                // スライダーの数値表示を更新 
+                const updateSliderDisplays = () => {
+                    Object.keys(displayVals).forEach(key => {
+                        const slider = $(`slider-${key}`);
+                        if (slider) displayVals[key].textContent = slider.value;
+                    });
+                };
+                updateSliderDisplays();
+                
+                // グリッド、ズームの更新
+                drawGrid();
+                updateZoom();
+
+                // 3. 画像データの復元 
+                if (state.imageData) {
+                    const img = new Image();
+                    img.onload = () => {
+                        ctx.drawImage(img, 0, 0);
+                        saveHistory(); // 読み込み後の状態を最初の履歴として保存
+                        updateInfo(); 
+                    };
+                    img.src = state.imageData;
+                } else {
+                    saveHistory();
+                    updateInfo();
+                }
+
+                alert('状態を正常に読み込みました。');
+
+            } catch (e) {
+                alert('エラー: データの読み込みまたは解析に失敗しました。ローカルストレージのデータが破損している可能性があります。\n' + e.message);
+            }
+        }
+
+        // === ローカルストレージ削除関数 ===
+        function clearLocalState() {
+            if (confirm('ローカルストレージに保存されているスプライト編集データを完全に削除してもよろしいですか？')) {
+                localStorage.removeItem(LOCAL_STORAGE_KEY);
+                alert('保存データを削除しました。');
+                $('btn-load-local').disabled = true;
+                $('chk-auto-save').checked = false; // 自動保存もOFFにする
+                isAutoSaving = false;
+            }
         }
 
         // === 描画ユーティリティ ===
@@ -1194,6 +1376,7 @@
 
             ctx.putImageData(imgData, r.x, r.y);
             updateInfo();
+             saveStateToLocal(); 
         }
 
         function applyFlip(dir) {
@@ -1250,6 +1433,7 @@
             }
             ctx.putImageData(dstData, r.x, r.y);
             updateInfo();
+            saveStateToLocal(); 
         }
 
 
@@ -1399,9 +1583,11 @@
             }
         }
 
-        function handleEnd(e) {
+function handleEnd(e) {
             if (isSelecting) {
                 isSelecting = false;
+                // ★追加: 選択範囲の変更後も設定値が変わるため保存
+                saveStateToLocal(); 
                 return;
             }
 
@@ -1419,13 +1605,17 @@
                     const shape = document.querySelector('input[name="shape"]:checked').value;
                     if (shape !== 'pen') {
                         finalizeShape(startX, startY, pos.x, pos.y); // pos.x, pos.y をそのまま使う
+                        // ★追加: 形状描画確定後に保存
+                        saveStateToLocal(); 
                         return;
                     }
                 }
 
                 // フリーハンド・スプレーの終了時
-                saveHistory(); // 一筆書き終わるたびに履歴保存
-                updateInfo(); // <-- プレビュー更新の不具合修正
+                saveHistory(); 
+                updateInfo(); 
+                // ★追加: フリーハンド描画終了後に保存
+                saveStateToLocal();
             }
         }
 
@@ -1816,21 +2006,63 @@ function loadFromCellRunnerJSON(event) {
             const loadedData = JSON.parse(e.target.result);
             const pixelData = loadedData.pixels;
             
-            // データの検証 (キャンバスサイズと一致するか)
-            if (!pixelData || pixelData.length !== CANVAS_W * CANVAS_H) {
-                alert(`エラー: 読み込んだピクセル数が現在のキャンバスサイズ (${CANVAS_W * CANVAS_H}) と一致しません。キャンバスサイズを変更してから読み込みを試行してください。`);
+            if (!pixelData) {
+                alert('エラー: JSONファイルにピクセルデータが見つかりません。');
                 return;
             }
+
+            const pixelCount = pixelData.length;
             
-            saveHistory(); // 読み込み前に履歴を保存 (問題なし)
+            // 既存のグリッド設定を取得
+            const cols = parseInt(inputs.gridCols.value);
+            const rows = parseInt(inputs.gridRows.value);
+            const numFrames = cols * rows;
+
+            // 1フレームあたりのピクセル数を計算
+            if (numFrames === 0 || pixelCount % numFrames !== 0) {
+                 alert(`エラー: 読み込んだピクセル数 (${pixelCount}) が現在のグリッド設定 (${cols}x${rows}=${numFrames}フレーム) で均等に分割できません。グリッド設定を見直すか、正しいサイズのファイルか確認してください。`);
+                return;
+            }
+
+            const pixelsPerFrame = pixelCount / numFrames;
+            
+            // 1フレームの幅を推測 (最も簡単なのは正方形と仮定)
+            const frameW = Math.round(Math.sqrt(pixelsPerFrame));
+            
+            if (frameW * frameW !== pixelsPerFrame) {
+                 // 正方形でない場合は、とりあえず現在のグリッド比率 (W/H) から推測するロジックを導入する必要があるが、
+                 // セルランナー形式の前提としてここでは「正方形」または「整数比率」を前提とする。
+                 // より複雑な計算は避けるため、一旦エラーとして処理を中断する。
+                 alert(`エラー: 1フレームあたりのピクセル数 (${pixelsPerFrame}) から正方形の幅が計算できませんでした。グリッド設定を見直すか、データが破損していないか確認してください。`);
+                 return;
+            }
+
+            const frameH = frameW;
+            const newW = frameW * cols;
+            const newH = frameH * rows;
+
+            // ★★★ キャンバスサイズを自動で変更 ★★★
+            if (CANVAS_W !== newW || CANVAS_H !== newH) {
+                if (confirm(`読み込んだデータに合わせてキャンバスサイズを ${newW}x${newH} に変更します。よろしいですか？`)) {
+                    setupCanvas(newW, newH, true); // サイズ変更と履歴リセット
+                    // inputsのW/Hも更新
+                    inputs.w.value = newW;
+                    inputs.h.value = newH;
+                } else {
+                    alert('キャンバスサイズ変更が拒否されました。読み込みを中止します。');
+                    return;
+                }
+            } else {
+                saveHistory(); // サイズが変わらない場合も、読み込み前に履歴を保存
+            }
             
             // 一時Canvasのコンテキストを作成
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = CANVAS_W;
-            tempCanvas.height = CANVAS_H;
+            tempCanvas.width = newW;
+            tempCanvas.height = newH;
             const tempCtx = tempCanvas.getContext('2d');
             
-            const imgData = tempCtx.createImageData(CANVAS_W, CANVAS_H);
+            const imgData = tempCtx.createImageData(newW, newH);
             const data = imgData.data;
             
             // RGBA値の正規表現
@@ -1865,9 +2097,10 @@ function loadFromCellRunnerJSON(event) {
                 data[index + 3] = a;
             }
             
-            ctx.putImageData(imgData, 0, 0); // ★★★ メインキャンバスに描画 ★★★
+            ctx.putImageData(imgData, 0, 0); // メインキャンバスに描画
             updateInfo();
-            alert('セルランナー形式のドット絵を読み込みました！');
+            // ★自動保存がONなら、読み込み後にも保存する
+            saveStateToLocal(); 
 
         } catch (error) {
             alert('エラー: JSONファイルの読み込みに失敗しました。' + error.message);
@@ -1953,6 +2186,7 @@ function loadFromCellRunnerJSON(event) {
             $('btn-toggle-grid').addEventListener('click', () => {
                 gridCanvas.classList.toggle('hidden-grid');
                 drawGrid(); // 再描画が必要な場合あり
+                saveStateToLocal(); 
             });
 
                $('btn-toggle-sel-box').addEventListener('click', () => {
@@ -2013,6 +2247,7 @@ chkTransformMode.addEventListener('change', () => {
             // 選択操作
             ['selX', 'selY', 'selW', 'selH'].forEach(k => {
                 inputs[k].addEventListener('input', updateInfo);
+                inputs[k].addEventListener('change', saveStateToLocal);
             });
             $('btn-auto-select').addEventListener('click', () => {
                 isAutoSelecting = true;
@@ -2183,6 +2418,41 @@ chkTransformMode.addEventListener('change', () => {
                 loadedImage = null;
                 $('btn-paste-img').disabled = true;
                 updateInfo();
+            });
+
+            
+                        // 【新規追加：ローカルストレージ関連】
+            const chkAutoSave = $('chk-auto-save');
+            
+            // 初回ロード時に保存データがあるか確認し、読込ボタンを有効化する
+            if (localStorage.getItem(LOCAL_STORAGE_KEY)) {
+                $('btn-load-local').disabled = false;
+            }
+
+            // 自動保存チェックボックスのイベント
+            chkAutoSave.addEventListener('change', () => {
+                isAutoSaving = chkAutoSave.checked;
+                if (isAutoSaving) {
+                    saveStateToLocal(true); // ONになった瞬間にも保存（メッセージ付き）
+                }
+            });
+
+            $('btn-load-local').addEventListener('click', loadStateFromLocal);
+            $('btn-clear-local').addEventListener('click', clearLocalState);
+            
+            // ツール設定の変更時に自動保存をトリガー (主要なもののみ)
+            [inputs.color, inputs.opacity, inputs.brush, inputs.sprayR, inputs.sprayD, inputs.mosaic, inputs.tolerance, inputs.quality, inputs.zoom, inputs.fps, inputs.startFrame, inputs.endFrame].forEach(inp => {
+                 inp.addEventListener('change', saveStateToLocal); // changeイベントで保存
+            });
+
+            // ラジオボタンの変更時に自動保存をトリガー
+            document.querySelectorAll('input[name="shape"], input[name="effect-target"], input[name="sym"], input[name="load-mode"]').forEach(radio => {
+                radio.addEventListener('change', saveStateToLocal);
+            });
+            
+            // チェックボックスの変更時に自動保存をトリガー
+            [chkPixelSnap, chkClipSel, chkSelAdd, chkPasteFit].forEach(chk => {
+                chk.addEventListener('change', saveStateToLocal);
             });
         }
 
