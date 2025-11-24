@@ -1976,25 +1976,17 @@ function extractPixelDataFromCanvas() {
 }
 
 function saveToCellRunnerJSON() {
-    const filename = window.prompt("JSONファイル名を入力してください:", "sprite-for-cellrunner");
+    const filename = window.prompt("JSONファイル名を入力してください:", "sprite-anim");
     if (!filename) return;
-    const safeFilename = filename.replace(/[\/\\:*?"<>|]/g, '_');
     
-    // アニメーション設定は、とりあえず固定値（セルランナー形式に合わせる）
-    // ユーザーが設定したグリッド分割数を元に、それっぽい mode を判定する
-    const cols = parseInt(inputs.gridCols.value);
-    const rows = parseInt(inputs.gridRows.value);
-    let animMode = 'none';
-    if (cols === 2 && rows === 2) animMode = '4frames';
-    else if (cols === 3 && rows === 2) animMode = '6frames';
-    else if (cols === 2 && rows === 1) animMode = '2frames';
-    
+    // アニメーションに必要な情報を完全網羅して保存
     const jsonData = { 
-        pixels: extractPixelDataFromCanvas(),
-        animation: {
-            mode: animMode, // 判定したモード
-            speed: inputs.fps.value // FPSスライダーの値を使用
-        }
+        width: CANVAS_W,      // キャンバス全体の幅
+        height: CANVAS_H,     // キャンバス全体の高さ
+        cols: parseInt(inputs.gridCols.value), // 横の分割数
+        rows: parseInt(inputs.gridRows.value), // 縦の分割数
+        fps: parseInt(inputs.fps.value),       // アニメーション速度
+        pixels: extractPixelDataFromCanvas()   // 色データ
     };
     
     const jsonString = JSON.stringify(jsonData, null, 2);
@@ -2003,7 +1995,7 @@ function saveToCellRunnerJSON() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${safeFilename}.json`;
+    a.download = `${filename}.json`;
     a.click();
     URL.revokeObjectURL(url);
 }
