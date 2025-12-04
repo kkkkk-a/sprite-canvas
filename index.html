@@ -2365,67 +2365,71 @@ chkTransformMode.addEventListener('change', () => {
             });
 
             // 画像読込
-            $('file-load').addEventListener('change', (e) => {
+           $('file-load').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
+                
                 const reader = new FileReader();
                 reader.onload = (evt) => {
                     const img = new Image();
                     img.onload = () => {
-                        loadedImage = img; // 画像をグローバル変数に格納
-                        $('btn-paste-img').disabled = false;
-
-                        // NOTE: ここではキャンバスへの描画は行わない！
-
-                        // ラジオボタンのモードに合わせて自動で実行したい場合は、
-                        // 新規関数を呼び出すようにする (下記3の案)
+                        loadedImage = img; // 画像を保持
+                        
+                        // ボタンを有効化し、ファイル名などを表示（任意）
+                        const btn = $('btn-paste-img');
+                        btn.disabled = false;
+                        btn.textContent = `「${file.name}」を貼付`; // 分かりやすくファイル名を表示
                     };
                     img.src = evt.target.result;
                 };
                 reader.readAsDataURL(file);
+
+                // ★修正点1: 同じファイルを連続で選べるように、入力値をリセット
+                e.target.value = ''; 
             });
 
+            // 画像貼り付けボタン
             $('btn-paste-img').addEventListener('click', () => {
                 if (!loadedImage) return;
 
                 // 現在選択されているモードを取得
                 const mode = document.querySelector('input[name="load-mode"]:checked').value;
 
-                saveHistory();
+                saveHistory(); // 履歴保存
 
                 if (mode === 'resize') {
-                    // モードが「キャンバスをリサイズ」の場合
                     if (confirm('キャンバスサイズを画像に合わせます。描画内容は破棄されますがよろしいですか？')) {
                         inputs.w.value = loadedImage.width;
                         inputs.h.value = loadedImage.height;
                         setupCanvas(loadedImage.width, loadedImage.height, true); // reset
                         ctx.drawImage(loadedImage, 0, 0);
                     } else {
-                        return;
+                        return; // キャンセル時は何もしない
                     }
                 } else if (mode === 'fit') {
-                    // モードが「キャンバスに合わせて変形」の場合
+                    // キャンバスに合わせて変形
                     ctx.drawImage(loadedImage, 0, 0, CANVAS_W, CANVAS_H);
-                } else if (mode === 'selection') { // <-- 新たなモード「選択範囲に貼付」を追加
+                } else if (mode === 'selection') {
+                    // 選択範囲に貼付
                     const r = {
                         x: parseInt(inputs.selX.value), y: parseInt(inputs.selY.value),
                         w: parseInt(inputs.selW.value), h: parseInt(inputs.selH.value)
                     };
 
-                    // クリップして描画
                     ctx.save();
                     ctx.beginPath();
                     ctx.rect(r.x, r.y, r.w, r.h);
                     ctx.clip();
-                    // 変形して合わせる
                     ctx.drawImage(loadedImage, r.x, r.y, r.w, r.h);
                     ctx.restore();
                 }
 
-                // 処理完了後、貼り付け元画像をクリアしてボタンを無効化 (連続貼り付けを防ぐため)
-                loadedImage = null;
-                $('btn-paste-img').disabled = true;
+                // ★修正点2: 貼り付け後もデータとボタン状態を維持する
+                // loadedImage = null;  <-- 削除
+                // $('btn-paste-img').disabled = true; <-- 削除
+                
                 updateInfo();
+                saveStateToLocal();
             });
 
             
