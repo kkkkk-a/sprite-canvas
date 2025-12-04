@@ -2000,7 +2000,7 @@ function saveToCellRunnerJSON() {
     URL.revokeObjectURL(url);
 }
 
- function loadFromCellRunnerJSON(event) {
+    function loadFromCellRunnerJSON(event) {
             const file = event.target.files[0];
             if (!file) return;
 
@@ -2008,25 +2008,6 @@ function saveToCellRunnerJSON() {
             reader.onload = (e) => {
                 try {
                     const loadedData = JSON.parse(e.target.result);
-                    
-                    // ▼▼▼ 【修正】ここから：UIへの反映処理を追加 ▼▼▼
-                    
-                    // 1. グリッド設定（横・縦）を反映
-                    if (loadedData.cols) inputs.gridCols.value = loadedData.cols;
-                    if (loadedData.rows) inputs.gridRows.value = loadedData.rows;
-
-                    // 2. FPS（アニメーション速度）を反映
-                    if (loadedData.fps) {
-                        inputs.fps.value = loadedData.fps;
-                        displayVals.fps.textContent = loadedData.fps; // スライダー横の数値表示も更新
-                    }
-
-                    // 3. グリッドの見た目を即座に更新
-                    drawGrid();
-                    
-                    // ▲▲▲ 【修正】ここまで ▲▲▲
-
-
                     const pixelData = loadedData.pixels;
                     
                     if (!pixelData) {
@@ -2034,44 +2015,50 @@ function saveToCellRunnerJSON() {
                         return;
                     }
 
-                    const pixelCount = pixelData.length;
-                    
-                    // 更新されたグリッド設定を取得
-                    const cols = parseInt(inputs.gridCols.value);
-                    const rows = parseInt(inputs.gridRows.value);
-                    const numFrames = cols * rows;
+                    // 1. キャンバスサイズの決定
+                    // JSONに幅・高さがあればそれを使う（最も確実）
+                    let newW = loadedData.width;
+                    let newH = loadedData.height;
 
-                    // 1フレームあたりのピクセル数を計算
-                    if (numFrames === 0 || pixelCount % numFrames !== 0) {
-                         alert(`エラー: 読み込んだピクセル数 (${pixelCount}) がグリッド設定 (${cols}x${rows}=${numFrames}フレーム) で均等に分割できません。`);
-                        return;
+                    // もし幅・高さデータがない古い形式の場合のみ、推測を試みる
+                    if (!newW || !newH) {
+                        const pixelCount = pixelData.length;
+                        // 正方形と仮定して計算 (緊急避難)
+                        const side = Math.sqrt(pixelCount);
+                        if (side * side === pixelCount) {
+                            newW = side;
+                            newH = side;
+                        } else {
+                            alert('エラー: キャンバスサイズ情報がなく、サイズを特定できませんでした。');
+                            return;
+                        }
                     }
 
-                    const pixelsPerFrame = pixelCount / numFrames;
-                    
-                    // 1フレームの幅を推測
-                    const frameW = Math.round(Math.sqrt(pixelsPerFrame));
-                    
-                    if (frameW * frameW !== pixelsPerFrame) {
-                         alert(`エラー: 正方形のフレームサイズを計算できませんでした。`);
-                         return;
-                    }
-
-                    const frameH = frameW;
-                    const newW = frameW * cols;
-                    const newH = frameH * rows;
-
-                    // キャンバスサイズを自動で変更
+                    // 2. キャンバスのリサイズ実行
                     if (CANVAS_W !== newW || CANVAS_H !== newH) {
-                        // 強制的にサイズ変更して読み込む（確認ダイアログは鬱陶しいので削除、または必要なら復活）
+                        // サイズ変更が必要ならリセットしてリサイズ
                         setupCanvas(newW, newH, true);
                         inputs.w.value = newW;
                         inputs.h.value = newH;
                     } else {
+                        // サイズが同じなら履歴だけ保存しておく
                         saveHistory();
                     }
+
+                    // 3. 設定値（グリッド・FPS）の反映
+                    if (loadedData.cols) inputs.gridCols.value = loadedData.cols;
+                    if (loadedData.rows) inputs.gridRows.value = loadedData.rows;
                     
-                    // 描画処理
+                    if (loadedData.fps) {
+                        inputs.fps.value = loadedData.fps;
+                        displayVals.fps.textContent = loadedData.fps;
+                    }
+                    
+                    // アニメーション範囲もあれば反映
+                    if (loadedData.startFrame !== undefined) inputs.startFrame.value = loadedData.startFrame;
+                    if (loadedData.endFrame !== undefined) inputs.endFrame.value = loadedData.endFrame;
+
+                    // 4. ピクセルデータの描画
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = newW;
                     tempCanvas.height = newH;
@@ -2104,19 +2091,27 @@ function saveToCellRunnerJSON() {
                     
                     ctx.putImageData(imgData, 0, 0);
                     
-                    // 選択範囲サイズも1コマ分にリセットしておくと親切
-                    inputs.selW.value = frameW;
-                    inputs.selH.value = frameH;
+                    // 5. UI更新
+                    drawGrid(); // グリッド線を引き直す
+                    
+                    // 選択範囲サイズを1コマ分にリセット
+                    const cols = parseInt(inputs.gridCols.value) || 1;
+                    const rows = parseInt(inputs.gridRows.value) || 1;
+                    inputs.selW.value = Math.floor(newW / cols);
+                    inputs.selH.value = Math.floor(newH / rows);
                     
                     updateInfo();
-                    saveStateToLocal(); // 読み込み完了後に保存
+                    
+                    // 読み込み完了後に自動保存
+                    saveStateToLocal(); 
 
                 } catch (error) {
-                    alert('エラー: JSONファイルの読み込みに失敗しました。' + error.message);
+                    alert('エラー: JSONファイルの読み込みに失敗しました。\n' + error.message);
+                    console.error(error);
                 }
             };
             reader.readAsText(file);
-            event.target.value = null;
+            event.target.value = null; // 同じファイルを再読み込み可能にする
         }
 // ... setupEventListeners の中でイベントを接続 ...
         function setupEventListeners() {
