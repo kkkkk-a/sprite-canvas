@@ -2000,120 +2000,124 @@ function saveToCellRunnerJSON() {
     URL.revokeObjectURL(url);
 }
 
-function loadFromCellRunnerJSON(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+ function loadFromCellRunnerJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        try {
-            const loadedData = JSON.parse(e.target.result);
-            const pixelData = loadedData.pixels;
-            
-            if (!pixelData) {
-                alert('エラー: JSONファイルにピクセルデータが見つかりません。');
-                return;
-            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const loadedData = JSON.parse(e.target.result);
+                    
+                    // ▼▼▼ 【修正】ここから：UIへの反映処理を追加 ▼▼▼
+                    
+                    // 1. グリッド設定（横・縦）を反映
+                    if (loadedData.cols) inputs.gridCols.value = loadedData.cols;
+                    if (loadedData.rows) inputs.gridRows.value = loadedData.rows;
 
-            const pixelCount = pixelData.length;
-            
-            // 既存のグリッド設定を取得
-            const cols = parseInt(inputs.gridCols.value);
-            const rows = parseInt(inputs.gridRows.value);
-            const numFrames = cols * rows;
-
-            // 1フレームあたりのピクセル数を計算
-            if (numFrames === 0 || pixelCount % numFrames !== 0) {
-                 alert(`エラー: 読み込んだピクセル数 (${pixelCount}) が現在のグリッド設定 (${cols}x${rows}=${numFrames}フレーム) で均等に分割できません。グリッド設定を見直すか、正しいサイズのファイルか確認してください。`);
-                return;
-            }
-
-            const pixelsPerFrame = pixelCount / numFrames;
-            
-            // 1フレームの幅を推測 (最も簡単なのは正方形と仮定)
-            const frameW = Math.round(Math.sqrt(pixelsPerFrame));
-            
-            if (frameW * frameW !== pixelsPerFrame) {
-                 // 正方形でない場合は、とりあえず現在のグリッド比率 (W/H) から推測するロジックを導入する必要があるが、
-                 // セルランナー形式の前提としてここでは「正方形」または「整数比率」を前提とする。
-                 // より複雑な計算は避けるため、一旦エラーとして処理を中断する。
-                 alert(`エラー: 1フレームあたりのピクセル数 (${pixelsPerFrame}) から正方形の幅が計算できませんでした。グリッド設定を見直すか、データが破損していないか確認してください。`);
-                 return;
-            }
-
-            const frameH = frameW;
-            const newW = frameW * cols;
-            const newH = frameH * rows;
-
-            // ★★★ キャンバスサイズを自動で変更 ★★★
-            if (CANVAS_W !== newW || CANVAS_H !== newH) {
-                if (confirm(`読み込んだデータに合わせてキャンバスサイズを ${newW}x${newH} に変更します。よろしいですか？`)) {
-                    setupCanvas(newW, newH, true); // サイズ変更と履歴リセット
-                    // inputsのW/Hも更新
-                    inputs.w.value = newW;
-                    inputs.h.value = newH;
-                } else {
-                    alert('キャンバスサイズ変更が拒否されました。読み込みを中止します。');
-                    return;
-                }
-            } else {
-                saveHistory(); // サイズが変わらない場合も、読み込み前に履歴を保存
-            }
-            
-            // 一時Canvasのコンテキストを作成
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = newW;
-            tempCanvas.height = newH;
-            const tempCtx = tempCanvas.getContext('2d');
-            
-            const imgData = tempCtx.createImageData(newW, newH);
-            const data = imgData.data;
-            
-            // RGBA値の正規表現
-            const hexMatch = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i;
-
-            // ピクセルデータをキャンバスのImageDataに書き戻す
-            for (let i = 0; i < pixelData.length; i++) {
-                const color = pixelData[i];
-                let r, g, b, a;
-                
-                if (color === 'transparent') {
-                    r = g = b = 0;
-                    a = 0;
-                } else {
-                    const match = color.match(hexMatch);
-                    if (match) {
-                        r = parseInt(match[1], 16);
-                        g = parseInt(match[2], 16);
-                        b = parseInt(match[3], 16);
-                        a = 255;
-                    } else {
-                        // 無効な色データは透明として扱う
-                        r = g = b = 0;
-                        a = 0;
+                    // 2. FPS（アニメーション速度）を反映
+                    if (loadedData.fps) {
+                        inputs.fps.value = loadedData.fps;
+                        displayVals.fps.textContent = loadedData.fps; // スライダー横の数値表示も更新
                     }
+
+                    // 3. グリッドの見た目を即座に更新
+                    drawGrid();
+                    
+                    // ▲▲▲ 【修正】ここまで ▲▲▲
+
+
+                    const pixelData = loadedData.pixels;
+                    
+                    if (!pixelData) {
+                        alert('エラー: JSONファイルにピクセルデータが見つかりません。');
+                        return;
+                    }
+
+                    const pixelCount = pixelData.length;
+                    
+                    // 更新されたグリッド設定を取得
+                    const cols = parseInt(inputs.gridCols.value);
+                    const rows = parseInt(inputs.gridRows.value);
+                    const numFrames = cols * rows;
+
+                    // 1フレームあたりのピクセル数を計算
+                    if (numFrames === 0 || pixelCount % numFrames !== 0) {
+                         alert(`エラー: 読み込んだピクセル数 (${pixelCount}) がグリッド設定 (${cols}x${rows}=${numFrames}フレーム) で均等に分割できません。`);
+                        return;
+                    }
+
+                    const pixelsPerFrame = pixelCount / numFrames;
+                    
+                    // 1フレームの幅を推測
+                    const frameW = Math.round(Math.sqrt(pixelsPerFrame));
+                    
+                    if (frameW * frameW !== pixelsPerFrame) {
+                         alert(`エラー: 正方形のフレームサイズを計算できませんでした。`);
+                         return;
+                    }
+
+                    const frameH = frameW;
+                    const newW = frameW * cols;
+                    const newH = frameH * rows;
+
+                    // キャンバスサイズを自動で変更
+                    if (CANVAS_W !== newW || CANVAS_H !== newH) {
+                        // 強制的にサイズ変更して読み込む（確認ダイアログは鬱陶しいので削除、または必要なら復活）
+                        setupCanvas(newW, newH, true);
+                        inputs.w.value = newW;
+                        inputs.h.value = newH;
+                    } else {
+                        saveHistory();
+                    }
+                    
+                    // 描画処理
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = newW;
+                    tempCanvas.height = newH;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    const imgData = tempCtx.createImageData(newW, newH);
+                    const data = imgData.data;
+                    const hexMatch = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i;
+
+                    for (let i = 0; i < pixelData.length; i++) {
+                        const color = pixelData[i];
+                        let r, g, b, a;
+                        
+                        if (color === 'transparent') {
+                            r = g = b = 0; a = 0;
+                        } else {
+                            const match = color.match(hexMatch);
+                            if (match) {
+                                r = parseInt(match[1], 16);
+                                g = parseInt(match[2], 16);
+                                b = parseInt(match[3], 16);
+                                a = 255;
+                            } else {
+                                r = g = b = 0; a = 0;
+                            }
+                        }
+                        
+                        const index = i * 4;
+                        data[index] = r; data[index + 1] = g; data[index + 2] = b; data[index + 3] = a;
+                    }
+                    
+                    ctx.putImageData(imgData, 0, 0);
+                    
+                    // 選択範囲サイズも1コマ分にリセットしておくと親切
+                    inputs.selW.value = frameW;
+                    inputs.selH.value = frameH;
+                    
+                    updateInfo();
+                    saveStateToLocal(); // 読み込み完了後に保存
+
+                } catch (error) {
+                    alert('エラー: JSONファイルの読み込みに失敗しました。' + error.message);
                 }
-                
-                const index = i * 4;
-                data[index] = r;
-                data[index + 1] = g;
-                data[index + 2] = b;
-                data[index + 3] = a;
-            }
-            
-            ctx.putImageData(imgData, 0, 0); // メインキャンバスに描画
-            updateInfo();
-            // ★自動保存がONなら、読み込み後にも保存する
-            saveStateToLocal(); 
-
-        } catch (error) {
-            alert('エラー: JSONファイルの読み込みに失敗しました。' + error.message);
+            };
+            reader.readAsText(file);
+            event.target.value = null;
         }
-    };
-    reader.readAsText(file);
-    event.target.value = null;
-}
-
 // ... setupEventListeners の中でイベントを接続 ...
         function setupEventListeners() {
             // ツールボタン
