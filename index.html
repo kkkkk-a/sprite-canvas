@@ -5,6 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>スプライトキャンバス</title>
+   <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@700&family=Dela+Gothic+One&family=DotGothic16&family=Hachi+Maru+Pop&family=Kaisei+Decol:wght@700&family=Kaisei+Tokumin:wght@700&family=Kiwi+Maru:wght@500&family=Kosugi+Maru&family=Mochiy+Pop+One&family=New+Tegomin&family=Noto+Sans+JP:wght@700&family=Noto+Serif+JP:wght@700&family=Potta+One&family=Rampart+One&family=Reggae+One&family=RocknRoll+One&family=Reggae+One&family=Shippori+Mincho:wght@700&family=Stick&family=Yusei+Magic&display=swap" rel="stylesheet">
+    
 <link rel="icon" type="image/png" href="favicon.ico">
     <style>
         /* ------------------------------------- */
@@ -382,6 +386,31 @@
                 width: 95%;
             }
         }
+
+/* レイヤーパネルUI */
+        .layer-item {
+            display: flex; align-items: center; padding: 4px; border-bottom: 1px solid #eee;
+            cursor: pointer; user-select: none; background: #fff;
+        }
+        .layer-item.active { background-color: #e2e6ea; border-left: 4px solid #007bff; }
+        .layer-vis-btn { background: none; border: none; cursor: pointer; padding: 0 5px; font-size: 1rem; }
+        .layer-name { flex-grow: 1; font-size: 0.85rem; margin: 0 5px; overflow: hidden; text-overflow: ellipsis; }
+        .layer-thumb { width: 32px; height: 32px; border: 1px solid #ccc; background: #eee; image-rendering: pixelated; }
+
+        /* レイヤーキャンバス(DOM合成用) */
+        #layer-container {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+        }
+        .layer-canvas {
+            position: absolute; top: 0; left: 0;
+            image-rendering: pixelated;
+        }
+        
+        /* プレビューやグリッドは常にレイヤーより上に表示 */
+        #preview-canvas { z-index: 10000; }
+        #grid-canvas { z-index: 10001; }
+        #selection-box { z-index: 10002; }
     </style>
 </head>
 
@@ -408,7 +437,8 @@
                 <!-- ビューア -->
                 <div id="viewer-area">
                     <div id="canvas-wrapper">
-                        <canvas id="drawing-canvas"></canvas>
+                        <div id="layer-container"></div>
+                        <canvas id="onion-canvas" style="position:absolute; top:0; left:0; z-index:9999; pointer-events:none; opacity:0.4; image-rendering:pixelated;"></canvas>
                         <canvas id="preview-canvas"></canvas>
                         <canvas id="grid-canvas"></canvas>
                         <div id="selection-box"></div>
@@ -421,31 +451,49 @@
         <div id="controls">
 
             <!-- 1. ツール選択 -->
-            <div class="control-panel">
+           <div class="control-panel">
                 <h3>描画ツール</h3>
                 <div class="tool-grid">
                     <button id="tool-select" class="active-tool">座標選択</button>
+                    <button id="tool-move">移動</button>
                     <button id="tool-pen">ペン</button>
                     <button id="tool-erase">消しゴム</button>
                     <button id="tool-fill">塗りつぶし</button>
                     <button id="tool-spray">スプレー</button>
+                    <button id="tool-text">テキスト</button>
+                    <button id="tool-balloon">フキダシ</button> <!-- ★新規 -->
+                    <button id="tool-effect-line">効果線</button> <!-- ★変更 -->
+                    <button id="tool-cutter">コマ割り</button>
                 </div>
 
                 <!-- 共通設定 -->
                 <div class="input-group flex-row">
-                    <label>色:</label>
+                    <label>色(線/塗):</label>
                     <input type="color" id="color-picker" value="#000000" style="width: 40px; height:30px; padding:0;">
                     <label style="margin-left:10px;">透過: <span id="val-opacity" class="slider-value">100</span>%</label>
                     <input type="range" id="slider-opacity" min="0" max="100" value="100" style="flex-grow:1;">
                 </div>
-                <div class="input-group">
-                    <label>ブラシサイズ: <span id="val-brush" class="slider-value">8</span> px</label>
-                    <input type="range" id="slider-brush" min="1" max="128" value="8" style="width:100%;">
+                
+                <div class="input-group flex-row">
+                    <label><input type="checkbox" id="chk-dither"> トーン:</label>
+                    <select id="sel-dither-type" style="flex-grow:1; padding:2px;">
+                        <option value="50">50% (市松模様)</option>
+                        <option value="25">25% (薄いドット)</option>
+                        <option value="12">12.5% (まばら)</option>
+                        <option value="75">75% (濃いドット)</option>
+                        <option value="line-h">万線 (横縞)</option>
+                        <option value="line-v">万線 (縦縞)</option>
+                        <option value="cross">カケアミ (クロス)</option>
+                    </select>
                 </div>
 
-                <!-- スプレー詳細設定 (スプレー選択時のみ有効にするUI) -->
-                <div id="spray-options" class="input-group"
-                    style="background:#f0f8ff; padding:8px; border-radius:4px; display:none;">
+                <div class="input-group">
+                    <label>太さ/サイズ: <span id="val-brush" class="slider-value">2</span> px</label>
+                    <input type="range" id="slider-brush" min="1" max="128" value="2" style="width:100%;">
+                </div>
+
+                <!-- ▼ オプションパネル群 (非表示で切り替え) ▼ -->
+                <div id="spray-options" class="input-group" style="background:#f0f8ff; padding:8px; border-radius:4px; display:none;">
                     <label style="font-size:0.8rem; color:#0056b3;">スプレー設定</label>
                     <div class="flex-row">
                         <label>半径: <span id="val-spray-r">16</span></label>
@@ -457,14 +505,87 @@
                     </div>
                 </div>
 
+                <div id="text-options" class="input-group" style="background:#fff3cd; padding:8px; border-radius:4px; display:none;">
+                    <label style="font-size:0.8rem; color:#856404;">テキスト設定</label>
+                    <textarea id="inp-text-content" placeholder="セリフを入力" rows="2" style="width:100%; margin-bottom:5px; padding:4px;"></textarea>
+                    <div class="flex-row" style="margin-bottom:5px;">
+                        <label>書体:</label>
+                        <select id="sel-text-font" style="flex-grow:1; padding:2px;">
+                            <optgroup label="基本・セリフ">
+                                <option value="DotGothic16">ドットゴシック</option>
+                                <option value="Shippori Mincho">しっぽり明朝</option>
+                                <option value="BIZ UDPGothic">BIZ UDゴシック</option>
+                                <option value="Kosugi Maru">小杉丸ゴシック</option>
+                            </optgroup>
+                            <optgroup label="インパクト・叫び">
+                                <option value="Dela Gothic One">極太ゴシック (Dela)</option>
+                                <option value="RocknRoll One">ロックンロール</option>
+                                <option value="Reggae One">レゲエ (怒り/恐怖)</option>
+                                <option value="Rampart One">立体ブロック (ロゴ)</option>
+                            </optgroup>
+                            <optgroup label="特殊・手書き">
+                                <option value="Yusei Magic">油性マジック</option>
+                                <option value="Hachi Maru Pop">ハチマルポップ (可愛い)</option>
+                                <option value="New Tegomin">かすれ明朝 (回想)</option>
+                                <option value="Stick">直線スティック (機械)</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="flex-row">
+                        <label>サイズ:</label>
+                        <input type="number" id="inp-text-size" value="24" min="8" max="128" style="width:50px;">
+                        <label><input type="checkbox" id="chk-text-vertical" checked> 縦書</label>
+                        <label><input type="checkbox" id="chk-text-border" checked> 白フチ</label>
+                    </div>
+                </div>
+
+                <div id="balloon-options" class="input-group" style="background:#e8eaed; padding:8px; border-radius:4px; display:none;">
+                    <label style="font-size:0.8rem; color:#3c4043;">フキダシ設定 (ドラッグで配置)</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.85rem; margin-bottom:5px;">
+                        <label><input type="radio" name="balloon-type" value="normal" checked> 標準(丸)</label>
+                        <label><input type="radio" name="balloon-type" value="shout"> 叫び(ギザギザ)</label>
+                        <label><input type="radio" name="balloon-type" value="think"> 思考(モコモコ)</label>
+                        <label><input type="radio" name="balloon-type" value="square"> 機械(カクカク)</label>
+                    </div>
+                    <div class="flex-row">
+                        <label><input type="checkbox" id="chk-balloon-fill" checked> 白で塗りつぶす</label>
+                    </div>
+                </div>
+
+                <div id="cutter-options" class="input-group" style="background:#f8d7da; padding:8px; border-radius:4px; display:none;">
+                    <label style="font-size:0.8rem; color:#721c24;">コマカッター設定 (ドラッグで分割)</label>
+                    <div class="flex-row">
+                        <label>溝(間隔): <span id="val-cutter-gutter" class="slider-value" style="width:20px;">15</span></label>
+                        <input type="range" id="inp-cutter-gutter" value="15" min="1" max="100" style="flex-grow:1;">
+                    </div>
+                    <label style="font-size:0.75rem; color:#666; display:block; margin-top:5px;">
+                        <input type="checkbox" id="chk-cutter-extend" checked> 画面端まで貫通して切る
+                    </label>
+                    <label style="font-size:0.75rem; color:#666; margin-top:2px; display:block;">※水平・垂直付近は自動で真っ直ぐになります</label>
+                </div>
+
+                <div id="effect-line-options" class="input-group" style="background:#d4edda; padding:8px; border-radius:4px; display:none;">
+                    <label style="font-size:0.8rem; color:#155724;">効果線設定 (ドラッグで方向/範囲指定)</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.85rem; margin-bottom:5px;">
+                        <label><input type="radio" name="effect-type" value="radial" checked> 集中線</label>
+                        <label><input type="radio" name="effect-type" value="parallel"> 流線(スピード線)</label>
+                    </div>
+                    <div class="flex-row">
+                        <label>密度:</label>
+                        <input type="range" id="slider-line-density" min="10" max="100" value="40" style="flex-grow:1;">
+                    </div>
+                </div>
+                <!-- ▲ オプションパネル群 終了 ▲ -->
+
                 <!-- ペン形状 -->
                 <div class="input-group" style="margin-top:10px;">
-                    <label>描画形状</label>
+                    <label>描画形状 (ペンツール用)</label>
                     <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.85rem;">
                         <label><input type="radio" name="shape" value="pen" checked> フリー</label>
                         <label><input type="radio" name="shape" value="line"> 直線</label>
                         <label><input type="radio" name="shape" value="rect"> 四角</label>
                         <label><input type="radio" name="shape" value="circle"> 円</label>
+                        <label><input type="radio" name="shape" value="frame"> コマ枠</label>
                     </div>
                 </div>
 
@@ -480,10 +601,58 @@
                     <button id="btn-redo" class="secondary" disabled>やり直す</button>
                 </div>
             </div>
-
+<!-- レイヤーパネル -->
+            <div class="control-panel" id="layer-panel">
+                <h3>レイヤー</h3>
+                <div class="input-group flex-row" style="margin-bottom:5px;">
+                    <label style="width:50px;">不透明度</label>
+                    <input type="range" id="layer-opacity" min="0" max="100" value="100" style="flex-grow:1;">
+                </div>
+                <div class="input-group flex-row">
+                    <label style="width:50px;">モード</label>
+                    <select id="layer-blend" style="flex-grow:1; padding:2px;">
+                        <option value="source-over">通常</option>
+                        <option value="multiply">乗算</option>
+                        <option value="screen">スクリーン</option>
+                        <option value="overlay">オーバーレイ</option>
+                        <option value="lighten">比較(明)</option>
+                        <option value="darken">比較(暗)</option>
+                    </select>
+                </div>
+                <div id="layer-list" style="height:150px; overflow-y:auto; border:1px solid #ccc; background:#fff; margin: 8px 0;"></div>
+                <div class="flex-row" style="gap:4px;">
+                    <button id="btn-add-layer" title="新規">＋</button>
+                    <button id="btn-merge-down" class="secondary" title="下のレイヤーと結合">↓結合</button>
+                    <button id="btn-del-layer" class="danger" title="削除">ゴミ箱</button>
+                </div>
+                <div class="flex-row" style="gap:4px; margin-top:4px;">
+                    <button id="btn-layer-up" class="secondary">↑ 上へ移動</button>
+                    <button id="btn-layer-down" class="secondary">↓ 下へ移動</button>
+                </div>
+            </div>
+            <!-- ▲▲▲ レイヤーパネル終了 ▲▲▲ -->
             <!-- 2. キャンバス・グリッド -->
             <div class="control-panel">
                 <h3>キャンバス / グリッド / ズーム</h3>
+                              <div class="input-group">
+                    <label>サイズプリセット</label>
+                    <select id="sel-canvas-preset" style="width:100%; padding:5px;">
+                        <option value="">-- 選択してリセット --</option>
+                        <optgroup label="ドット絵・スプライト">
+                            <option value="32,32">32 x 32 (小アイコン)</option>
+                            <option value="64,64">64 x 64 (標準キャラ)</option>
+                            <option value="128,128">128 x 128 (大型ボス)</option>
+                            <option value="256,240">256 x 240 (ファミコン画面)</option>
+                        </optgroup>
+                        <optgroup label="マンガ・イラスト">
+                            <option value="874,1240">A5判相当 (マンガ縦書き)</option>
+                            <option value="1200,1200">SNS投稿用 (1:1 正方形)</option>
+                            <option value="800,2400">Webtoon (縦読みマンガ)</option>
+                            <option value="1280,720">HD画質 (16:9)</option>
+                        </optgroup>
+                    </select>
+                </div>
+
                 <div class="flex-row">
                     <div style="flex:1;">
                         <label>幅 (px)</label>
@@ -557,7 +726,16 @@
                 </div>
 
                 <hr style="margin:10px 0;">
-
+               <div class="input-group">
+                    <label>フチ取り (アウトライン)</label>
+                    <div class="flex-row">
+                        <input type="color" id="inp-outline-color" value="#ffffff" style="width:40px; height:30px; padding:0;" title="フチの色">
+                        <label>太さ:</label>
+                        <input type="number" id="inp-outline-width" value="1" min="1" max="10" style="width:50px;">
+                        <button id="btn-effect-outline" class="success" style="margin:0; flex-grow:1;">フチ取り実行</button>
+                    </div>
+                    <label style="font-size:0.75rem; color:#666;">※現在のレイヤー(または選択範囲)の絵を縁取ります</label>
+                </div>
                 <div class="input-group">
                     <label>対称描画 (シンメトリー)</label>
                     <div style="display:flex; gap:10px; flex-wrap:wrap; font-size:0.85rem;">
@@ -578,7 +756,10 @@
                     <div style="flex:1;"><label>W</label><input type="number" id="inp-sel-w" value="32"></div>
                     <div style="flex:1;"><label>H</label><input type="number" id="inp-sel-h" value="32"></div>
                 </div>
-
+          <div class="flex-row" style="margin-top:5px;">
+                    <button id="btn-sel-all" class="secondary">全選択</button>
+                    <button id="btn-sel-clear" class="secondary">選択解除</button>
+                </div>
                 <div class="input-group" style="margin-top:10px;">
                     <label><input type="checkbox" id="chk-sel-add"> 選択範囲を加算する</label>
                 </div>
@@ -616,13 +797,13 @@
 
                 <button id="btn-paste-img" disabled>読み込みモードで画像を貼付</button>
                 <hr style="margin:10px 0;">
-                <h3>ローカルストレージ (自動バックアップ)</h3>
+                <h3>インデックスドディービー (自動バックアップ)</h3>
                 <div class="input-group">
                     <label><input type="checkbox" id="chk-auto-save"> 自動保存 ON/OFF (操作時にバックアップ)</label>
                 </div>
                 <p style="font-size:0.75rem; color:#999; margin-top:-5px; margin-bottom:5px;">※ブラウザの容量制限があるため、大きなデータは保存に失敗することがあります。下部Webp保存品質により保存データの品質を変えられます。保存データを読み込むと描画内容は上書きされます。</p>
                 <button id="btn-load-local" class="secondary" disabled>保存した状態を読込</button>
-                <button id="btn-clear-local" class="danger">ローカルストレージ全削除</button>
+                <button id="btn-clear-local" class="danger">インデックスドディービー全削除</button>
                 <hr style="margin:10px 0;">
 
                 <div class="input-group">
@@ -644,7 +825,9 @@
 
                 <hr style="margin: 10px 0;">
                 <h3>アニメーション制御 (グリッド単位)</h3>
-
+                <div class="input-group">
+                    <label><input type="checkbox" id="chk-onion-skin"> オニオンスキン (前のコマを透かして表示)</label>
+                </div>
                 <div class="input-group flex-row">
                     <label>フレーム速度 (FPS): <span id="val-fps">12</span></label>
                     <input type="range" id="slider-fps" min="1" max="60" value="12" style="flex-grow:1;">
@@ -675,59 +858,39 @@
     </div>
 
     <script>
-        /**
-         * 究極のスプライトツール - ロジック部
-         * 
-         * 機能:
-         * - 基本描画 (ペン, 直線, 短形, 円)
-         * - 拡張描画 (スプレー, 塗りつぶし)
-         * - 選択ツール (グリッド吸着, 自動選択, 加算)
-         * - 画像処理 (モザイク, モノクロ, セピア, 反転)
-         * - 履歴管理 (Undo/Redo)
-         * - ファイル入出力 (WebP, 画像貼り付け)
-         */
-
-        // === 定数・グローバル変数 ===
-        let CANVAS_W = 640;
-        let CANVAS_H = 320;
-        let PIXEL_UNIT = 8; // ブラシサイズ兼グリッドスナップ単位の基礎
-
-        // 状態
-        let currentTool = 'select'; // select, pen, erase, fill, spray
-        let currentShape = 'pen';   // pen, line, rect, circle
-        let isDrawing = false;
-        let isSelecting = false;
-        let isAutoSelecting = false;
-
-        let startX = 0, startY = 0; // 描画/選択開始位置
-        let history = [];
-        let historyIndex = -1;
-        const MAX_HISTORY = 50;
+// === 定数・グローバル変数 ===
+        let CANVAS_W = 640; let CANVAS_H = 320;
+        let PIXEL_UNIT = 8;
+        let currentTool = 'select', currentShape = 'pen';
+        let isDrawing = false, isSelecting = false, isAutoSelecting = false;
+        let startX = 0, startY = 0;
         let currentScale = 1.0;
-        let loadedImage = null;
         let clipboardData = null;
-
-        let transformOriginalData = null; // 変形前のオリジナル ImageData を格納
-        let transformOriginalW = 0;       // 変形前のオリジナル幅
-        let transformOriginalH = 0;       // 変形前のオリジナル高さ
-
+        let transformOriginalData = null, transformOriginalW = 0, transformOriginalH = 0;
         let showFrameNumbers = false;
+        let animInterval = null, currentFrame = 0, frameCoordinates =[];
+        const LOCAL_STORAGE_KEY = 'ultimateSpriteToolState';
+        let isAutoSaving = false;
 
-        let animInterval = null;
-        let currentFrame = 0;
-        let frameCoordinates = []; // フレームの座標を格納 [ {x, y, w, h}, ... ]
+        // ▼ 履歴用
+        let history =[];
+        let historyIndex = -1;
+        const MAX_HISTORY = 30; // レイヤーがあるとメモリを食うので少し減らす
 
-                const LOCAL_STORAGE_KEY = 'ultimateSpriteToolState';
-        let isAutoSaving = false; // 自動保存の状態を保持
-
-        // === DOM要素取得 ===
+        // ▼ レイヤー用変数
+        let layers =[];
+        let activeLayerIndex = -1;
+        let layerCounter = 1;
+        let isMoving = false;
+        let moveStartX = 0, moveStartY = 0;
+        let moveOriginalX = 0, moveOriginalY = 0;
+        let moveBufferCanvas = document.createElement('canvas'); // 移動中の一時保持用
         const $ = (id) => document.getElementById(id);
 
-        // キャンバス関連
-        const canvas = $('drawing-canvas');
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const previewCanvas = $('preview-canvas'); // <-- ここを追加
-        const previewCtx = previewCanvas.getContext('2d'); // <-- ここを追加
+        // キャンバス関連DOM
+        const layerContainer = $('layer-container');
+        const previewCanvas = $('preview-canvas');
+        const previewCtx = previewCanvas.getContext('2d');
         const gridCanvas = $('grid-canvas');
         const gridCtx = gridCanvas.getContext('2d');
         const selectionBox = $('selection-box');
@@ -737,10 +900,15 @@
         // ツールボタン
         const tools = {
             select: $('tool-select'),
+            move: $('tool-move'),
             pen: $('tool-pen'),
             erase: $('tool-erase'),
             fill: $('tool-fill'),
-            spray: $('tool-spray')
+            spray: $('tool-spray'),
+            text: $('tool-text'),
+            balloon: $('tool-balloon'),
+            effectLine: $('tool-effect-line'),
+            cutter: $('tool-cutter') 
         };
 
         // 入力要素
@@ -783,69 +951,241 @@
             quality: $('val-quality'),
             fps: $('val-fps')
         };
+// ▼▼▼ IndexedDB ヘルパー (倉庫の管理人) ▼▼▼
+        const DB_NAME = 'UltimateSpriteDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'projects';
 
-        // === 初期化処理 ===
-        window.addEventListener('DOMContentLoaded', () => {
-            setupCanvas(CANVAS_W, CANVAS_H, true);
-            updateZoom();
-            setTool('select');
-
-            // イベントリスナー設定
-            setupEventListeners();
-            setupDrawingEvents();
-        });
-
-        // === キャンバス基本操作 ===
-
-        function setupCanvas(w, h, reset = false) {
-            CANVAS_W = w;
-            CANVAS_H = h;
-
-            canvas.width = CANVAS_W;
-            canvas.height = CANVAS_H;
-            canvas.style.width = w + 'px';
-            canvas.style.height = h + 'px';
-
-            previewCanvas.width = CANVAS_W;     // <-- ここを追加
-            previewCanvas.height = CANVAS_H;    // <-- ここを追加
-            previewCanvas.style.width = w + 'px'; // <-- ここを追加
-            previewCanvas.style.height = h + 'px';// <-- ここを追加
-
-            gridCanvas.width = CANVAS_W;
-            gridCanvas.height = CANVAS_H;
-            gridCanvas.style.width = w + 'px';
-            gridCanvas.style.height = h + 'px';
-
-            canvasWrapper.style.width = w + 'px';
-            canvasWrapper.style.height = h + 'px';
-
-            if (reset) {
-                ctx.clearRect(0, 0, w, h);
-                history = [];
-                historyIndex = -1;
-                saveHistory();
-
-                // グリッド初期計算
-                drawGrid();
-                const cw = w / parseInt(inputs.gridCols.value);
-                const rh = h / parseInt(inputs.gridRows.value);
-                inputs.selW.value = Math.floor(cw);
-                inputs.selH.value = Math.floor(rh);
-            }
-
-            updateScrollBars();
-            updateInfo();
+        // データベースを開く
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+                request.onsuccess = (e) => resolve(e.target.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
         }
 
+        // データを保存する
+        async function saveToDB(key, data) {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                store.put({ id: key, data: data });
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        // データを読み込む
+        async function loadFromDB(key) {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.get(key);
+                request.onsuccess = () => resolve(request.result ? request.result.data : null);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        // データを削除する
+        async function deleteFromDB(key) {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                store.delete(key);
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        // CanvasをBlob(ファイルデータ)に変換する補助関数
+        function canvasToBlob(canvas) {
+            return new Promise(resolve => canvas.toBlob(resolve));
+        }
+        // === 初期化処理 ===
+        window.addEventListener('DOMContentLoaded', () => {
+            // 1. まずキャンバスとレイヤーを準備
+            setupCanvas(CANVAS_W, CANVAS_H, true);
+            
+            // 2. 次にすべてのボタン等のイベントを設定
+            setupEventListeners();
+            
+            // 3. マウスやタッチの描画イベントを設定（★重要！）
+            setupDrawingEvents();
+            
+            // 4. 初期状態の表示更新
+            updateZoom();
+            setTool('select');
+        });
+        function addLayer(name = null) {
+            const canvas = document.createElement('canvas');
+            canvas.width = CANVAS_W; canvas.height = CANVAS_H;
+            canvas.className = 'layer-canvas';
+            layerContainer.appendChild(canvas);
+            
+            const newLayer = {
+                id: Date.now() + Math.random(),
+                name: name || `レイヤー ${layerCounter++}`,
+                canvas: canvas,
+                ctx: canvas.getContext('2d', { willReadFrequently: true }),
+                visible: true,
+                opacity: 1.0,
+                blendMode: 'source-over'
+            };
+
+            layers.push(newLayer);
+            activeLayerIndex = layers.length - 1;
+            
+            updateLayerDOM();
+            updateLayerUI();
+            return newLayer;
+        }
+
+        function getActiveCtx() {
+            if (activeLayerIndex < 0 || activeLayerIndex >= layers.length) return null;
+            return layers[activeLayerIndex].ctx;
+        }
+        function showLoading(text = "処理中...") {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) {
+                document.getElementById('loading-text').textContent = text;
+                overlay.style.display = 'flex';
+            }
+        }
+
+        function hideLoading() {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+        }
+
+        // 非同期処理（Promise）にも対応した実行関数
+        function runHeavyTask(taskFn, text) {
+            showLoading(text);
+            
+            // 描画更新のために一瞬待つ
+            setTimeout(async () => {
+                try {
+                    // ★ここが重要: 渡された関数が async なら、終わるまで await で待つ
+                    await taskFn();
+                } catch (e) {
+                    console.error(e);
+                    alert("エラーが発生しました: " + e.message);
+                } finally {
+                    // 処理が完全に終わってから隠す
+                    hideLoading();
+                }
+            }, 50);
+        }
+        // CSSによるDOMベース合成の設定 (★これで超軽量になります)
+        function updateLayerDOM() {
+            const cssBlendMap = {
+                'source-over': 'normal', 'multiply': 'multiply', 'screen': 'screen',
+                'overlay': 'overlay', 'lighten': 'lighten', 'darken': 'darken'
+            };
+            layers.forEach((layer, i) => {
+                layer.canvas.style.zIndex = i * 10;
+                layer.canvas.style.display = layer.visible ? 'block' : 'none';
+                layer.canvas.style.opacity = layer.opacity;
+                layer.canvas.style.mixBlendMode = cssBlendMap[layer.blendMode] || 'normal';
+            });
+        }
+
+        // 出力・結合用の1枚のキャンバスを生成する関数
+        function getMergedCanvas() {
+            const mCan = document.createElement('canvas');
+            mCan.width = CANVAS_W; mCan.height = CANVAS_H;
+            const mCtx = mCan.getContext('2d');
+            layers.forEach(l => {
+                if (l.visible) {
+                    mCtx.save();
+                    mCtx.globalAlpha = l.opacity;
+                    mCtx.globalCompositeOperation = l.blendMode;
+                    mCtx.drawImage(l.canvas, 0, 0);
+                    mCtx.restore();
+                }
+            });
+            return mCan;
+        }
+
+        // レイヤーUIの更新
+        function updateLayerUI() {
+            const list = $('layer-list');
+            list.innerHTML = '';
+            for (let i = layers.length - 1; i >= 0; i--) {
+                const layer = layers[i];
+                const item = document.createElement('div');
+                item.className = 'layer-item' + (i === activeLayerIndex ? ' active' : '');
+                
+                item.onclick = () => {
+                    activeLayerIndex = i;
+                    updateLayerUI();
+                };
+
+                const eyeBtn = document.createElement('button');
+                eyeBtn.className = 'layer-vis-btn';
+                eyeBtn.textContent = layer.visible ? '👁️' : '・';
+                eyeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    layer.visible = !layer.visible;
+                    updateLayerDOM(); updateLayerUI(); saveHistory();
+                };
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'layer-name';
+                nameSpan.textContent = layer.name;
+                nameSpan.ondblclick = () => {
+                    const nn = prompt("レイヤー名:", layer.name);
+                    if(nn) { layer.name = nn; updateLayerUI(); saveHistory(); }
+                };
+
+                item.appendChild(eyeBtn);
+                item.appendChild(nameSpan);
+                list.appendChild(item);
+            }
+            if(layers[activeLayerIndex]) {
+                $('layer-opacity').value = layers[activeLayerIndex].opacity * 100;
+                $('layer-blend').value = layers[activeLayerIndex].blendMode;
+            }
+        }
+
+        // === 完璧な Undo/Redo システム ===
+        function saveHistory() {
+            if (historyIndex < history.length - 1) {
+                history = history.slice(0, historyIndex + 1);
+            }
+            // ImageDataとしてピクセル情報を完全にコピーして保存
+            const snapshot = layers.map(l => ({
+                id: l.id, name: l.name, visible: l.visible,
+                opacity: l.opacity, blendMode: l.blendMode,
+                imageData: l.ctx.getImageData(0, 0, CANVAS_W, CANVAS_H)
+            }));
+
+            history.push({ layers: snapshot, activeLayerIndex: activeLayerIndex });
+            if (history.length > MAX_HISTORY) history.shift();
+            else historyIndex++;
+            updateHistoryBtns();
+            updateInfo();
+        }
+// グリッド線を描画する関数
         function drawGrid() {
             gridCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
             if (gridCanvas.classList.contains('hidden-grid')) return;
 
-            const cols = parseInt(inputs.gridCols.value);
-            const rows = parseInt(inputs.gridRows.value);
-            if (cols < 1 || rows < 1) return;
-
-            gridCtx.strokeStyle = 'rgba(100, 149, 237, 0.5)'; // CornflowerBlue
+            const cols = parseInt(inputs.gridCols.value) || 1;
+            const rows = parseInt(inputs.gridRows.value) || 1;
+            
+            gridCtx.strokeStyle = 'rgba(100, 149, 237, 0.5)'; // 青色
             gridCtx.lineWidth = 1;
             gridCtx.beginPath();
 
@@ -863,49 +1203,94 @@
                 gridCtx.lineTo(CANVAS_W, y);
             }
             gridCtx.stroke();
+
+            // フレーム番号の表示
             if (showFrameNumbers) {
-                gridCtx.fillStyle = 'rgba(255, 0, 0, 0.8)'; // 赤色
-                gridCtx.font = `${Math.min(cw, rh) * 0.4}px Arial`; // セルサイズに応じてフォントサイズ調整
+                gridCtx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+                gridCtx.font = `${Math.min(cw, rh) * 0.3}px Arial`;
                 gridCtx.textAlign = 'center';
                 gridCtx.textBaseline = 'middle';
-
                 let frameIndex = 0;
                 for (let r = 0; r < rows; r++) {
                     for (let c = 0; c < cols; c++) {
-                        const cx = c * cw + cw / 2;
-                        const cy = r * rh + rh / 2;
-                        gridCtx.fillText(frameIndex.toString(), cx, cy);
-                        frameIndex++;
+                        gridCtx.fillText(frameIndex++, c * cw + cw/2, r * rh + rh/2);
                     }
                 }
             }
         }
+                function setupCanvas(w, h, reset = false) {
+            CANVAS_W = w;
+            CANVAS_H = h;
 
-        // === 履歴管理 ===
+            // プレビュー用とグリッド用のキャンバスサイズを設定
+            [previewCanvas, gridCanvas].forEach(c => {
+                c.width = w;
+                c.height = h;
+                c.style.width = w + 'px';
+                c.style.height = h + 'px';
+            });
 
-        function saveHistory() {
-            if (historyIndex < history.length - 1) {
-                history = history.slice(0, historyIndex + 1);
+            // キャンバス全体の枠組みのサイズを設定
+            canvasWrapper.style.width = w + 'px';
+            canvasWrapper.style.height = h + 'px';
+
+            if (reset) {
+                // レイヤーを空っぽにする
+                layerContainer.innerHTML = '';
+                layers = []; 
+                activeLayerIndex = -1; 
+                layerCounter = 1;
+
+                // 最初のレイヤー「背景」を追加
+                addLayer('背景');
+
+                // 履歴（Undo/Redo）をリセット
+                history = [];
+                historyIndex = -1;
+                saveHistory();
+
+                // グリッド線を引き直す
+                drawGrid();
+
+                // 選択範囲のサイズを、今のグリッド設定に合わせて計算
+                const cols = parseInt(inputs.gridCols.value) || 10;
+                const rows = parseInt(inputs.gridRows.value) || 5;
+                inputs.selW.value = Math.floor(w / cols);
+                inputs.selH.value = Math.floor(h / rows);
             }
-            history.push(ctx.getImageData(0, 0, CANVAS_W, CANVAS_H));
-            if (history.length > MAX_HISTORY) {
-                history.shift();
-            } else {
-                historyIndex++;
-            }
-            updateHistoryBtns();
+
+            updateScrollBars(); // スクロールバーの長さを調整
+            updateInfo();       // プレビュー表示などを更新
         }
 
         function restoreHistory(offset) {
             const nextIndex = historyIndex + offset;
             if (nextIndex >= 0 && nextIndex < history.length) {
                 historyIndex = nextIndex;
-                ctx.putImageData(history[historyIndex], 0, 0);
-                updateHistoryBtns();
-                updateInfo(); // プレビュー更新
+                const state = history[historyIndex];
+                
+                // DOMと配列をリセット
+                layerContainer.innerHTML = '';
+                layers =[];
+                
+                // 履歴から完全に再構築
+                state.layers.forEach(ls => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = CANVAS_W; canvas.height = CANVAS_H;
+                    canvas.className = 'layer-canvas';
+                    layerContainer.appendChild(canvas);
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                    ctx.putImageData(ls.imageData, 0, 0); // 復元
+                    
+                    layers.push({
+                        id: ls.id, name: ls.name, canvas: canvas, ctx: ctx,
+                        visible: ls.visible, opacity: ls.opacity, blendMode: ls.blendMode
+                    });
+                });
+                activeLayerIndex = state.activeLayerIndex;
+                updateLayerDOM(); updateLayerUI(); updateHistoryBtns(); updateInfo();
             }
         }
-
         function updateHistoryBtns() {
             $('btn-undo').disabled = historyIndex <= 0;
             $('btn-redo').disabled = historyIndex >= history.length - 1;
@@ -915,204 +1300,210 @@
 
         function setTool(name) {
             currentTool = name;
-
-            // ボタンのアクティブ表示切替
             Object.keys(tools).forEach(k => {
-                if (k === name) tools[k].classList.add('active-tool');
-                else tools[k].classList.remove('active-tool');
+                if (tools[k]) {
+                    if (k === name) tools[k].classList.add('active-tool');
+                    else tools[k].classList.remove('active-tool');
+                }
             });
 
             // カーソル変更
             if (name === 'select') viewerArea.style.cursor = 'crosshair';
             else if (name === 'fill') viewerArea.style.cursor = 'cell';
             else if (name === 'spray') viewerArea.style.cursor = 'crosshair';
+            else if (name === 'move') viewerArea.style.cursor = 'move';
+            else if (name === 'text') viewerArea.style.cursor = 'text';
+            else if (name === 'balloon' || name === 'effectLine') viewerArea.style.cursor = 'crosshair';
+            else if (name === 'cutter') viewerArea.style.cursor = 'crosshair';
             else viewerArea.style.cursor = 'default';
 
-            // スプレーオプションの表示切替
+            // オプションパネルの表示切替
             $('spray-options').style.display = (name === 'spray') ? 'block' : 'none';
+            $('text-options').style.display = (name === 'text') ? 'block' : 'none';
+            $('balloon-options').style.display = (name === 'balloon') ? 'block' : 'none';
+            $('effect-line-options').style.display = (name === 'effectLine') ? 'block' : 'none';
+            $('cutter-options').style.display = (name === 'cutter') ? 'block' : 'none';
         }
-        // ... (既存のコード: setupEventListeners の直前など、どこでも可)
+
 
         // === ローカルストレージ保存関数 (画像データ含む) ===
-        function saveStateToLocal(showMsg = false) {
-            if (!isAutoSaving && !showMsg) return; // 自動保存OFFなら保存しない
+        async function saveStateToLocal(showMsg = false) {
+            if (!isAutoSaving && !showMsg) return;
 
-            // 1. 設定情報の収集
-            const state = {
-                canvasW: CANVAS_W, 
-                canvasH: CANVAS_H,
-                settings: {
-                    // キャンバスサイズ (入力値)
-                    inpW: inputs.w.value,
-                    inpH: inputs.h.value,
-                    // グリッド
-                    gridCols: inputs.gridCols.value,
-                    gridRows: inputs.gridRows.value,
-                    // 選択範囲
-                    selX: inputs.selX.value,
-                    selY: inputs.selY.value,
-                    selW: inputs.selW.value,
-                    selH: inputs.selH.value,
-                    // ツール設定
-                    currentTool: currentTool,
-                    currentShape: document.querySelector('input[name="shape"]:checked').value,
-                    color: inputs.color.value,
-                    opacity: inputs.opacity.value,
-                    brush: inputs.brush.value,
-                    sprayR: inputs.sprayR.value,
-                    sprayD: inputs.sprayD.value,
-                    // エフェクト
-                    mosaic: inputs.mosaic.value,
-                    tolerance: inputs.tolerance.value,
-                    effectTarget: document.querySelector('input[name="effect-target"]:checked').value,
-                    sym: document.querySelector('input[name="sym"]:checked').value,
-                    // チェックボックス
-                    chkPixelSnap: chkPixelSnap.checked,
-                    chkClipSel: chkClipSel.checked,
-                    chkSelAdd: chkSelAdd.checked,
-                    chkPasteFit: chkPasteFit.checked,
-                    chkTransformMode: chkTransformMode.checked,
-                    showFrameNumbers: showFrameNumbers,
-                    // ズーム・アニメーション
-                    zoom: inputs.zoom.value,
-                    quality: inputs.quality.value,
-                    fps: inputs.fps.value,
-                    startFrame: inputs.startFrame.value,
-                    endFrame: inputs.endFrame.value
-                }
-                // NOTE: 履歴情報は保存対象外
-            };
+            // ローディングを表示（自動保存の時は邪魔にならないよう控えめに、手動の時は出す）
+            if(showMsg) showLoading("プロジェクトを保存中...");
 
-            // 2. 画像データ (WebP Base64) の抽出
-            const quality = parseInt(inputs.quality.value) / 100;
-            // WebP Base64 エンコード文字列
             try {
-                const imageDataURL = canvas.toDataURL('image/webp', quality);
-                state.imageData = imageDataURL;
-                
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+                // 1. レイヤー画像のBlob化（ここが高速化のキモ）
+                // 全レイヤーの画像データを並列で変換します
+                const layerDataPromises = layers.map(async (layer) => {
+                    const blob = await canvasToBlob(layer.canvas);
+                    return {
+                        name: layer.name,
+                        visible: layer.visible,
+                        opacity: layer.opacity,
+                        blendMode: layer.blendMode,
+                        blob: blob // 画像そのもの
+                    };
+                });
 
+                const layerData = await Promise.all(layerDataPromises);
+
+                // 2. 保存データの構築
+                const saveData = {
+                    timestamp: Date.now(),
+                    canvasW: CANVAS_W,
+                    canvasH: CANVAS_H,
+                    layers: layerData, // 画像データ群
+                    settings: {
+                        // 各種設定値
+                        inpW: inputs.w.value, inpH: inputs.h.value,
+                        gridCols: inputs.gridCols.value, gridRows: inputs.gridRows.value,
+                        selX: inputs.selX.value, selY: inputs.selY.value,
+                        selW: inputs.selW.value, selH: inputs.selH.value,
+                        currentTool: currentTool,
+                        color: inputs.color.value, opacity: inputs.opacity.value,
+                        brush: inputs.brush.value, fps: inputs.fps.value,
+                        // 必要なチェックボックスの状態などもここに
+                        chkPixelSnap: chkPixelSnap.checked,
+                        chkClipSel: chkClipSel.checked,
+                        showFrameNumbers: showFrameNumbers
+                    }
+                };
+
+                // 3. 倉庫(DB)に保存
+                await saveToDB('autoSaveSlot', saveData);
+                
                 $('btn-load-local').disabled = false;
+                if(showMsg) alert("保存しました！");
+
             } catch (e) {
-                console.error('ローカルストレージへの自動保存に失敗:', e.message);
-                if (showMsg) alert('エラー: ローカルストレージへの保存に失敗しました。容量不足かもしれません。\n' + e.message);
+                console.error("保存エラー:", e);
+                if(showMsg) alert("保存に失敗しました: " + e.message);
+            } finally {
+                if(showMsg) hideLoading();
             }
         }
-
         // === ローカルストレージ読み込み関数 ===
-        function loadStateFromLocal() {
-            const dataString = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (!dataString) {
-                alert('保存されたデータがありません。');
-                return;
-            }
+        async function loadStateFromLocal() {
+            if (!confirm('保存された状態を読み込みます。現在の作業内容は失われますがよろしいですか？')) return;
 
-            if (!confirm('保存された状態を読み込みます。現在の作業内容は失われ、履歴もリセットされますがよろしいですか？')) return;
-
-            try {
-                const state = JSON.parse(dataString);
-                const settings = state.settings;
-
-                // 1. キャンバスサイズの変更と初期化
-                const newW = parseInt(state.canvasW);
-                const newH = parseInt(state.canvasH);
-                if (newW > 0 && newH > 0) {
-                    setupCanvas(newW, newH, true); // リセット = 履歴クリア
+            runHeavyTask(async () => {
+                const data = await loadFromDB('autoSaveSlot');
+                if (!data) {
+                    alert('保存データが見つかりません。');
+                    return;
                 }
 
-                // 2. 設定の復元
+                // 1. キャンバスサイズの復元
+                const settings = data.settings;
                 inputs.w.value = settings.inpW;
                 inputs.h.value = settings.inpH;
+                
+                // キャンバスリセット (レイヤーもクリアされる)
+                setupCanvas(parseInt(data.canvasW), parseInt(data.canvasH), true);
+
+                // 2. 設定の復元
                 inputs.gridCols.value = settings.gridCols;
                 inputs.gridRows.value = settings.gridRows;
-                inputs.selX.value = settings.selX;
-                inputs.selY.value = settings.selY;
-                inputs.selW.value = settings.selW;
-                inputs.selH.value = settings.selH;
                 inputs.color.value = settings.color;
                 inputs.opacity.value = settings.opacity;
                 inputs.brush.value = settings.brush;
-                inputs.sprayR.value = settings.sprayR;
-                inputs.sprayD.value = settings.sprayD;
-                inputs.mosaic.value = settings.mosaic;
-                inputs.tolerance.value = settings.tolerance;
-                inputs.zoom.value = settings.zoom;
-                inputs.quality.value = settings.quality;
-                inputs.fps.value = settings.fps;
-                inputs.startFrame.value = settings.startFrame;
-                inputs.endFrame.value = settings.endFrame;
-
-                // ラジオボタンの復元
-                document.querySelector(`input[name="shape"][value="${settings.currentShape}"]`).checked = true;
-                document.querySelector(`input[name="effect-target"][value="${settings.effectTarget}"]`).checked = true;
-                document.querySelector(`input[name="sym"][value="${settings.sym}"]`).checked = true;
-                
-                // チェックボックスの復元
+                inputs.fps.value = settings.fps || 12;
                 chkPixelSnap.checked = settings.chkPixelSnap;
                 chkClipSel.checked = settings.chkClipSel;
-                chkSelAdd.checked = settings.chkSelAdd;
-                chkPasteFit.checked = settings.chkPasteFit;
-                chkTransformMode.checked = false; 
                 showFrameNumbers = settings.showFrameNumbers;
-                $('chk-auto-save').checked = isAutoSaving; // 読み込み前に保存状態は影響させない
                 
-                // ツールのアクティブ状態の復元
-                setTool(settings.currentTool);
-
-                // スライダーの数値表示を更新 
-                const updateSliderDisplays = () => {
-                    Object.keys(displayVals).forEach(key => {
-                        const slider = $(`slider-${key}`);
-                        if (slider) displayVals[key].textContent = slider.value;
-                    });
-                };
-                updateSliderDisplays();
-                
-                // グリッド、ズームの更新
                 drawGrid();
                 updateZoom();
 
-                // 3. 画像データの復元 
-                if (state.imageData) {
+                // 3. レイヤーの復元 (一番大事なところ)
+                // 初期化で作られた「背景」レイヤーを削除して、保存されたレイヤーに入れ替える
+                layerContainer.innerHTML = '';
+                layers = [];
+                activeLayerIndex = -1;
+
+                // 保存されたレイヤーを順番に復元
+                for (const lData of data.layers) {
+                    // Blobから画像URLを生成
+                    const imgUrl = URL.createObjectURL(lData.blob);
                     const img = new Image();
-                    img.onload = () => {
-                        ctx.drawImage(img, 0, 0);
-                        saveHistory(); // 読み込み後の状態を最初の履歴として保存
-                        updateInfo(); 
-                    };
-                    img.src = state.imageData;
-                } else {
-                    saveHistory();
-                    updateInfo();
+                    
+                    // 画像の読み込みを待つ
+                    await new Promise(resolve => {
+                        img.onload = resolve;
+                        img.src = imgUrl;
+                    });
+
+                    // 新規レイヤー作成して描画
+                    const newLayer = addLayer(lData.name);
+                    newLayer.visible = lData.visible;
+                    newLayer.opacity = lData.opacity;
+                    newLayer.blendMode = lData.blendMode;
+                    newLayer.ctx.drawImage(img, 0, 0);
+                    
+                    // メモリ解放
+                    URL.revokeObjectURL(imgUrl);
                 }
 
-                alert('状態を正常に読み込みました。');
+                updateLayerDOM();
+                updateLayerUI();
+                saveHistory(); // 復元した状態を履歴の1手目にする
+                updateInfo();
 
-            } catch (e) {
-                alert('エラー: データの読み込みまたは解析に失敗しました。ローカルストレージのデータが破損している可能性があります。\n' + e.message);
-            }
+            }, "データを復元中...");
         }
-
         // === ローカルストレージ削除関数 ===
-        function clearLocalState() {
-            if (confirm('ローカルストレージに保存されているスプライト編集データを完全に削除してもよろしいですか？')) {
-                localStorage.removeItem(LOCAL_STORAGE_KEY);
+        async function clearLocalState() {
+            if (confirm('保存データを完全に削除してもよろしいですか？')) {
+                await deleteFromDB('autoSaveSlot');
                 alert('保存データを削除しました。');
                 $('btn-load-local').disabled = true;
-                $('chk-auto-save').checked = false; // 自動保存もOFFにする
+                $('chk-auto-save').checked = false;
                 isAutoSaving = false;
             }
         }
 
         // === 描画ユーティリティ ===
 
-        function getDrawColor() {
+        function getDrawColor(targetCtx = null) {
             const hex = inputs.color.value;
             const alpha = parseInt(inputs.opacity.value) / 100;
             const r = parseInt(hex.slice(1, 3), 16);
             const g = parseInt(hex.slice(3, 5), 16);
             const b = parseInt(hex.slice(5, 7), 16);
-            return `rgba(${r},${g},${b},${alpha})`;
+            const colorStr = `rgba(${r},${g},${b},${alpha})`;
+
+            const chkDither = $('chk-dither');
+            if (chkDither && chkDither.checked && targetCtx) {
+                const type = $('sel-dither-type').value;
+                const pCan = document.createElement('canvas');
+                pCan.width = 4; pCan.height = 4; // パターンサイズを4x4にして表現を増やす
+                const pCtx = pCan.getContext('2d');
+                pCtx.fillStyle = colorStr;
+
+                if (type === '50') {
+                    pCtx.fillRect(0,0,1,1); pCtx.fillRect(2,0,1,1);
+                    pCtx.fillRect(1,1,1,1); pCtx.fillRect(3,1,1,1);
+                    pCtx.fillRect(0,2,1,1); pCtx.fillRect(2,2,1,1);
+                    pCtx.fillRect(1,3,1,1); pCtx.fillRect(3,3,1,1);
+                } else if (type === '25') {
+                    pCtx.fillRect(0,0,1,1); pCtx.fillRect(2,2,1,1);
+                } else if (type === '12') {
+                    pCtx.fillRect(0,0,1,1);
+                } else if (type === '75') {
+                    pCtx.fillRect(0,0,4,4);
+                    pCtx.clearRect(1,1,1,1); pCtx.clearRect(3,3,1,1); // 一部を透明で抜く
+                } else if (type === 'line-h') {
+                    pCtx.fillRect(0,0,4,1); pCtx.fillRect(0,2,4,1);
+                } else if (type === 'line-v') {
+                    pCtx.fillRect(0,0,1,4); pCtx.fillRect(2,0,1,4);
+                } else if (type === 'cross') {
+                    pCtx.fillRect(0,0,4,1); pCtx.fillRect(0,0,1,4);
+                }
+                return targetCtx.createPattern(pCan, 'repeat');
+            }
+            return colorStr;
         }
 
         function getSymmetryOrigin() {
@@ -1138,7 +1529,11 @@
         }
 
         // 描画実行 (1点/形状)
-        function drawAt(x, y, isDrag = false) {
+function drawAt(x, y, isDrag = false) {
+            // ★変更: アクティブレイヤーのコンテキストを取得
+            const targetCtx = getActiveCtx();
+            if (!targetCtx) return;
+
             const size = parseInt(inputs.brush.value);
             const sym = getSymmetryOrigin();
             const points = [{ x, y }];
@@ -1148,8 +1543,6 @@
                 if (sym.mode === 'h' || sym.mode === 'both') {
                     // X軸対称 (左右)
                     points.push({ x: sym.x - (x - sym.x), y: y });
-                    // ※ドットのズレを補正するために -size などを入れる場合があるが、
-                    // 今回は中心軸反転の単純計算とする
                 }
                 if (sym.mode === 'v' || sym.mode === 'both') {
                     // Y軸対称 (上下)
@@ -1162,22 +1555,24 @@
             }
 
             // クリッピング設定
-            ctx.save();
+            // ★変更: targetCtx に対して save/restore を行う
+            targetCtx.save();
             if (chkClipSel.checked) {
-                ctx.beginPath();
-                ctx.rect(
+                targetCtx.beginPath();
+                targetCtx.rect(
                     parseInt(inputs.selX.value) || 0, parseInt(inputs.selY.value) || 0,
                     parseInt(inputs.selW.value) || CANVAS_W, parseInt(inputs.selH.value) || CANVAS_H
                 );
-                ctx.clip();
+                targetCtx.clip();
             }
 
-            ctx.fillStyle = getDrawColor();
+            targetCtx.fillStyle = getDrawColor(targetCtx);
 
             points.forEach(p => {
                 // スプレー描画
                 if (currentTool === 'spray') {
-                    drawSpray(p.x, p.y);
+                    // ★変更: drawSprayにもコンテキストを渡す（後述の修正版が必要）
+                    drawSpray(p.x, p.y, targetCtx);
                     return;
                 }
 
@@ -1187,24 +1582,27 @@
                 let dy = p.y;
 
                 if (chkPixelSnap.checked) {
-                    // ブラシサイズ単位でスナップさせるか、1px単位か。
-                    // 通常のドット絵ツールは 1px 単位の座標に ブラシサイズの矩形を描く
                     dx = Math.floor(dx);
                     dy = Math.floor(dy);
                 }
 
                 if (currentTool === 'erase') {
-                    ctx.clearRect(dx, dy, size, size);
+                    targetCtx.clearRect(dx, dy, size, size);
                 } else {
-                    ctx.fillRect(dx, dy, size, size);
+                    targetCtx.fillRect(dx, dy, size, size);
                 }
             });
 
-            ctx.restore();
-        }
+            targetCtx.restore();
 
+        }
         // スプレー描画ロジック
-        function drawSpray(cx, cy) {
+// 引数に ctxToAdd を追加し、指定されたコンテキストに描画する
+        function drawSpray(cx, cy, ctxToAdd = null) {
+            // コンテキストが指定されていなければアクティブレイヤーを使う
+            const targetCtx = ctxToAdd || getActiveCtx();
+            if (!targetCtx) return;
+
             const radius = parseInt(inputs.sprayR.value);
             const density = parseInt(inputs.sprayD.value);
 
@@ -1215,29 +1613,483 @@
                 const ox = Math.cos(angle) * r;
                 const oy = Math.sin(angle) * r;
 
-                // 1pxの点を打つ
-                ctx.fillRect(Math.floor(cx + ox), Math.floor(cy + oy), 1, 1);
+                // 1pxの点を打つ (targetCtxに対して)
+                targetCtx.fillRect(Math.floor(cx + ox), Math.floor(cy + oy), 1, 1);
+            }
+        }
+        function drawLineEffect(cx, cy) {
+            const targetCtx = getActiveCtx();
+            if (!targetCtx) return;
+            saveHistory();
+            
+            targetCtx.save();
+            if (chkClipSel.checked) {
+                targetCtx.beginPath();
+                targetCtx.rect(parseInt(inputs.selX.value), parseInt(inputs.selY.value), parseInt(inputs.selW.value), parseInt(inputs.selH.value));
+                targetCtx.clip();
+            }
+
+            targetCtx.fillStyle = getDrawColor(targetCtx);
+            const density = parseInt($('slider-line-density').value) || 30;
+            const lines = density * 3; // 密度から線の本数を決定
+            const baseSize = parseInt(inputs.brush.value);
+            const maxRadius = Math.max(CANVAS_W, CANVAS_H) * 1.5;
+
+            for (let i = 0; i < lines; i++) {
+                const angle = (Math.PI * 2 * i) / lines + (Math.random() * 0.05);
+                // 中心部分はランダムに空洞を開ける
+                const innerRadius = 30 + Math.random() * 100;
+                
+                const x0 = cx + Math.cos(angle) * innerRadius;
+                const y0 = cy + Math.sin(angle) * innerRadius;
+                const x1 = cx + Math.cos(angle) * maxRadius;
+                const y1 = cy + Math.sin(angle) * maxRadius;
+
+                const dx = Math.abs(x1 - x0);
+                const dy = Math.abs(y1 - y0);
+                const steps = Math.max(dx, dy);
+                
+                // ドット絵特有のランダムな太さのバリエーション
+                const currentSize = Math.max(1, Math.floor(Math.random() * baseSize) + 1);
+
+                for (let j = 0; j <= steps; j++) {
+                    const t = j / steps;
+                    let lx = x0 + (x1 - x0) * t;
+                    let ly = y0 + (y1 - y0) * t;
+                    if (chkPixelSnap.checked) { lx = Math.floor(lx); ly = Math.floor(ly); }
+                    targetCtx.fillRect(lx, ly, currentSize, currentSize);
+                }
+            }
+            targetCtx.restore();
+            updateInfo();
+            saveStateToLocal();
+        }
+
+        // ▼▼▼ テキストツール ▼▼▼
+        async function drawTextEffect(x, y) {
+            const targetCtx = getActiveCtx();
+            if (!targetCtx) return;
+
+            const text = $('inp-text-content').value;
+            if (!text) { alert('テキストを入力してください'); return; }
+            
+            const fontName = $('sel-text-font').value;
+            const size = parseInt($('inp-text-size').value) || 16;
+            
+            // フォント読み込み待ち
+            showLoading(`フォント「${fontName}」を準備中...`);
+            try {
+                await document.fonts.load(`bold ${size}px "${fontName}"`);
+            } catch (e) {
+                console.warn("フォント読み込み待機エラー:", e);
+            }
+            hideLoading();
+
+            saveHistory();
+
+            const hasBorder = $('chk-text-border').checked;
+            const isVertical = $('chk-text-vertical').checked;
+
+            if (chkPixelSnap.checked) { 
+                x = Math.floor(x); 
+                y = Math.floor(y); 
+            }
+
+            targetCtx.save();
+            targetCtx.font = `bold ${size}px '${fontName}', sans-serif`;
+            targetCtx.textBaseline = 'top';
+
+            const drawColor = getDrawColor(targetCtx);
+            const borderWidth = Math.max(2, Math.floor(size / 8));
+
+            if (isVertical) {
+                targetCtx.textAlign = 'center';
+                let currentY = y;
+                for (let i = 0; i < text.length; i++) {
+                    const char = text[i];
+                    
+                    if (char === '\n') { 
+                        x -= size * 1.2; 
+                        currentY = y; 
+                        continue; 
+                    }
+
+                    targetCtx.save();
+                    let drawX = x;
+                    let drawY = currentY;
+
+                    const rotateChars =['ー', '-', '(', ')', '「', '」', '【', '】', '（', '）', '[', ']'];
+                    const smallChars =['ぁ','ぃ','ぅ','ぇ','ぉ','っ','ゃ','ゅ','ょ','ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ'];
+
+                    if (rotateChars.includes(char)) {
+                        targetCtx.translate(drawX, drawY + size / 2); 
+                        targetCtx.rotate(Math.PI / 2); 
+                        targetCtx.translate(-drawX, -(drawY + size / 2));
+                    } else if (smallChars.includes(char)) { 
+                        drawX += size * 0.1; 
+                        drawY -= size * 0.1; 
+                    } else if (char === '、' || char === '。') { 
+                        drawX += size * 0.3; 
+                        drawY -= size * 0.3; 
+                    }
+
+                    if (hasBorder) {
+                        targetCtx.strokeStyle = 'white'; 
+                        targetCtx.lineWidth = borderWidth; 
+                        targetCtx.lineJoin = 'round'; 
+                        targetCtx.strokeText(char, drawX, drawY);
+                    }
+                    targetCtx.fillStyle = drawColor; 
+                    targetCtx.fillText(char, drawX, drawY);
+                    
+                    targetCtx.restore();
+                    currentY += size;
+                }
+            } else {
+                targetCtx.textAlign = 'left';
+                const lines = text.split('\n');
+                let currentY = y;
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (hasBorder) {
+                        targetCtx.strokeStyle = 'white'; 
+                        targetCtx.lineWidth = borderWidth; 
+                        targetCtx.lineJoin = 'round'; 
+                        targetCtx.strokeText(line, x, currentY);
+                    }
+                    targetCtx.fillStyle = drawColor; 
+                    targetCtx.fillText(line, x, currentY);
+                    currentY += size * 1.2;
+                }
+            }
+
+            targetCtx.restore();
+            updateInfo();
+            saveStateToLocal();
+        }
+         function drawBalloon(x0, y0, x1, y1, isPreview = false) {
+            const targetCtx = isPreview ? previewCtx : getActiveCtx();
+            if (!targetCtx) return;
+
+            if (!isPreview) saveHistory();
+
+            const type = document.querySelector('input[name="balloon-type"]:checked').value;
+            const isFill = $('chk-balloon-fill').checked && !isPreview;
+            const size = parseInt(inputs.brush.value) || 2;
+
+            let sx = Math.min(x0, x1), sy = Math.min(y0, y1);
+            let w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+            let cx = sx + w / 2, cy = sy + h / 2;
+
+            if (chkPixelSnap.checked || isPreview) {
+                sx = Math.floor(sx); sy = Math.floor(sy);
+                w = Math.floor(w); h = Math.floor(h);
+                cx = Math.floor(cx); cy = Math.floor(cy);
+            }
+
+            if (w < 10 || h < 10) return; // 小さすぎる場合は描画しない
+
+            targetCtx.save();
+            if (chkClipSel.checked && !isPreview) {
+                targetCtx.beginPath();
+                targetCtx.rect(parseInt(inputs.selX.value), parseInt(inputs.selY.value), parseInt(inputs.selW.value), parseInt(inputs.selH.value));
+                targetCtx.clip();
+            }
+
+            targetCtx.beginPath();
+
+            if (type === 'normal') {
+                // 標準（楕円）
+                targetCtx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+            } else if (type === 'square') {
+                // 機械（角丸四角形）
+                const r = Math.min(w, h) * 0.1; // 角の丸み
+                targetCtx.moveTo(sx + r, sy);
+                targetCtx.lineTo(sx + w - r, sy); targetCtx.quadraticCurveTo(sx + w, sy, sx + w, sy + r);
+                targetCtx.lineTo(sx + w, sy + h - r); targetCtx.quadraticCurveTo(sx + w, sy + h, sx + w - r, sy + h);
+                targetCtx.lineTo(sx + r, sy + h); targetCtx.quadraticCurveTo(sx, sy + h, sx, sy + h - r);
+                targetCtx.lineTo(sx, sy + r); targetCtx.quadraticCurveTo(sx, sy, sx + r, sy);
+            } else if (type === 'shout' || type === 'think') {
+                // 叫び（ギザギザ）または 思考（モコモコ）
+                const points = type === 'shout' ? 24 : 12; // 頂点数
+                for (let i = 0; i <= points; i++) {
+                    const angle = (Math.PI * 2 * i) / points;
+                    // 半径をジグザグまたはモコモコさせる
+                    const radiusMod = type === 'shout' 
+                        ? (i % 2 === 0 ? 1 : 0.7 + Math.random() * 0.1) // ギザギザ
+                        : (i % 2 === 0 ? 1 : 0.85);                     // モコモコ
+                        
+                    const px = cx + Math.cos(angle) * (w / 2) * radiusMod;
+                    const py = cy + Math.sin(angle) * (h / 2) * radiusMod;
+                    
+                    if (i === 0) targetCtx.moveTo(px, py);
+                    else {
+                        if (type === 'think') {
+                            // モコモコは二次ベジェ曲線で丸みを出す
+                            const prevAngle = (Math.PI * 2 * (i - 1)) / points;
+                            const pcx = cx + Math.cos((angle + prevAngle)/2) * (w/2) * 1.1;
+                            const pcy = cy + Math.sin((angle + prevAngle)/2) * (h/2) * 1.1;
+                            targetCtx.quadraticCurveTo(pcx, pcy, px, py);
+                        } else {
+                            targetCtx.lineTo(px, py);
+                        }
+                    }
+                }
+            }
+
+            // 描画実行
+            if (isPreview) {
+                targetCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+                targetCtx.lineWidth = 2;
+                targetCtx.setLineDash([4, 2]);
+                targetCtx.stroke();
+                targetCtx.setLineDash([]);
+            } else {
+                targetCtx.closePath();
+                if (isFill) {
+                    targetCtx.fillStyle = '#ffffff'; // 白塗り
+                    targetCtx.fill();
+                }
+                targetCtx.strokeStyle = getDrawColor(targetCtx);
+                targetCtx.lineWidth = size;
+                targetCtx.lineJoin = 'round';
+                targetCtx.stroke();
+                updateInfo();
+                saveStateToLocal();
+            }
+            targetCtx.restore();
+        }
+
+        // ▼▼▼ 効果線ツール (集中線・流線) ▼▼▼
+async function drawEffectLine(x0, y0, x1, y1, isPreview = false) {
+            const targetCtx = isPreview ? previewCtx : getActiveCtx();
+            if (!targetCtx) return;
+
+            const type = document.querySelector('input[name="effect-type"]:checked').value;
+            const density = parseInt($('slider-line-density').value) || 40;
+            const size = parseInt(inputs.brush.value) || 2;
+
+            if (isPreview) {
+                targetCtx.strokeStyle = 'rgba(255,0,0,0.8)';
+                targetCtx.lineWidth = 1;
+                targetCtx.beginPath();
+                if (type === 'radial') {
+                    const r = Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2));
+                    targetCtx.arc(x0, y0, r, 0, Math.PI * 2);
+                    targetCtx.moveTo(x0 - 5, y0); targetCtx.lineTo(x0 + 5, y0);
+                    targetCtx.moveTo(x0, y0 - 5); targetCtx.lineTo(x0, y0 + 5);
+                } else {
+                    targetCtx.moveTo(x0, y0); targetCtx.lineTo(x1, y1);
+                }
+                targetCtx.stroke();
+                return;
+            }
+
+            runHeavyTask(() => {
+                saveHistory();
+                targetCtx.save();
+                if (chkClipSel.checked) {
+                    targetCtx.beginPath();
+                    targetCtx.rect(parseInt(inputs.selX.value), parseInt(inputs.selY.value), parseInt(inputs.selW.value), parseInt(inputs.selH.value));
+                    targetCtx.clip();
+                }
+
+                targetCtx.fillStyle = getDrawColor(targetCtx);
+                const lines = density * 4;
+                const maxRadius = Math.max(CANVAS_W, CANVAS_H) * 2;
+
+                if (type === 'radial') {
+                    const innerRadius = Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2));
+                    for (let i = 0; i < lines; i++) {
+                        const angle = (Math.PI * 2 * i) / lines + (Math.random() * 0.05);
+                        const randInner = innerRadius + Math.random() * (innerRadius * 0.5); 
+                        
+                        const startX = x0 + Math.cos(angle) * randInner;
+                        const startY = y0 + Math.sin(angle) * randInner;
+                        const endX = x0 + Math.cos(angle) * maxRadius;
+                        const endY = y0 + Math.sin(angle) * maxRadius;
+
+                        const currentSize = Math.max(1, Math.floor(Math.random() * size) + 1);
+                        drawInterpolatedLine(targetCtx, startX, startY, endX, endY, currentSize);
+                    }
+                } else if (type === 'parallel') {
+                    const angle = Math.atan2(y1 - y0, x1 - x0);
+                    const cx = CANVAS_W / 2, cy = CANVAS_H / 2;
+                    const spread = Math.max(CANVAS_W, CANVAS_H);
+
+                    for (let i = 0; i < lines * 2; i++) {
+                        const offset = (Math.random() - 0.5) * spread * 2;
+                        const px = cx + Math.cos(angle + Math.PI/2) * offset;
+                        const py = cy + Math.sin(angle + Math.PI/2) * offset;
+                        
+                        const length = spread * (0.5 + Math.random());
+                        const startX = px - Math.cos(angle) * length;
+                        const startY = py - Math.sin(angle) * length;
+                        const endX = px + Math.cos(angle) * length;
+                        const endY = py + Math.sin(angle) * length;
+
+                        const currentSize = Math.max(1, Math.floor(Math.random() * size) + 1);
+                        drawInterpolatedLine(targetCtx, startX, startY, endX, endY, currentSize);
+                    }
+                }
+
+                targetCtx.restore();
+                updateInfo();
+                saveStateToLocal();
+            }, "効果線を描画中...");
+        }
+
+        // ピクセル補間用の補助関数
+        function drawInterpolatedLine(ctx, x0, y0, x1, y1, size) {
+            const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+            const steps = Math.max(dx, dy);
+            for (let j = 0; j <= steps; j++) {
+                const t = j / steps;
+                let lx = x0 + (x1 - x0) * t;
+                let ly = y0 + (y1 - y0) * t;
+                if (chkPixelSnap.checked) { lx = Math.floor(lx); ly = Math.floor(ly); }
+                ctx.fillRect(lx, ly, size, size);
             }
         }
 
-        // 形状描画 (mouseup時)
-        function finalizeShape(x0, y0, x1, y1) {
-            saveHistory(); // 描画確定前に保存しないと戻せない
+// ▼▼▼ コマ割りカッター (クリッピング対応版) ▼▼▼
+        function drawCutter(x0, y0, x1, y1, isPreview = false) {
+            const targetCtx = isPreview ? previewCtx : getActiveCtx();
+            if (!targetCtx) return;
 
-            // シェイプ描画はシンメトリー非対応（複雑になるため）または簡易対応
-            // ここではシンプルに単一描画とするが、クリッピングは適用する
+            let dx = x1 - x0;
+            let dy = y1 - y0;
+            
+            // ドラッグ距離が短すぎる場合は無視
+            if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
 
-            ctx.save();
+            // --- 自動スナップ機能 ---
+            const angle = Math.atan2(dy, dx);
+            const deg = angle * 180 / Math.PI;
+            const snapDeg = Math.round(deg / 90) * 90; 
+            
+            if (Math.abs(deg - snapDeg) < 15 || Math.abs(deg - snapDeg) > 345) {
+                if (snapDeg === 0 || Math.abs(snapDeg) === 180) dy = 0; 
+                if (Math.abs(snapDeg) === 90) dx = 0;                   
+                x1 = x0 + dx;
+                y1 = y0 + dy;
+            }
+
+            // --- 画面端まで延長する処理 ---
+            const isExtend = $('chk-cutter-extend').checked;
+            let p0 = { x: x0, y: y0 };
+            let p1 = { x: x1, y: y1 };
+
+            if (isExtend) {
+                const len = Math.sqrt(dx*dx + dy*dy);
+                const nx = dx / len;
+                const ny = dy / len;
+                const ext = Math.max(CANVAS_W, CANVAS_H) * 2; 
+                p0 = { x: x0 - nx * ext, y: y0 - ny * ext };
+                p1 = { x: x1 + nx * ext, y: y1 + ny * ext };
+            }
+
+            const gutter = parseInt($('inp-cutter-gutter').value) || 15;
+            const border = parseInt(inputs.brush.value) || 2; 
+            
+            const perpAngle = Math.atan2(p1.y - p0.y, p1.x - p0.x) + Math.PI / 2;
+            const offsetX = Math.cos(perpAngle);
+            const offsetY = Math.sin(perpAngle);
+
+            // 描画開始
+            if (!isPreview) saveHistory();
+            
+            targetCtx.save();
+
+            // ★★★ 新規追加：クリッピング処理 ★★★
+            // 「選択範囲内のみ描画」がONの場合、その範囲外にはカッターを適用しない
             if (chkClipSel.checked) {
-                ctx.beginPath();
-                ctx.rect(parseInt(inputs.selX.value), parseInt(inputs.selY.value), parseInt(inputs.selW.value), parseInt(inputs.selH.value));
-                ctx.clip();
+                targetCtx.beginPath();
+                targetCtx.rect(
+                    parseInt(inputs.selX.value), 
+                    parseInt(inputs.selY.value), 
+                    parseInt(inputs.selW.value), 
+                    parseInt(inputs.selH.value)
+                );
+                targetCtx.clip();
+            }
+            // ★★★ 追加ここまで ★★★
+
+            if (isPreview) {
+                // --- プレビュー ---
+                targetCtx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
+                targetCtx.lineWidth = gutter;
+                targetCtx.lineCap = 'square';
+                targetCtx.beginPath();
+                targetCtx.moveTo(p0.x, p0.y); targetCtx.lineTo(p1.x, p1.y);
+                targetCtx.stroke();
+                
+                targetCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                targetCtx.lineWidth = Math.max(1, border);
+                const d = (gutter / 2) + (border / 2);
+                
+                targetCtx.beginPath();
+                targetCtx.moveTo(p0.x + offsetX * d, p0.y + offsetY * d);
+                targetCtx.lineTo(p1.x + offsetX * d, p1.y + offsetY * d);
+                targetCtx.stroke();
+                
+                targetCtx.beginPath();
+                targetCtx.moveTo(p0.x - offsetX * d, p0.y - offsetY * d);
+                targetCtx.lineTo(p1.x - offsetX * d, p1.y - offsetY * d);
+                targetCtx.stroke();
+            } else {
+                // --- 本番描画 ---
+                // 1. 溝を作る（透明にする）
+                targetCtx.globalCompositeOperation = 'destination-out';
+                targetCtx.lineWidth = gutter + border * 2;
+                targetCtx.lineCap = 'square';
+                targetCtx.beginPath();
+                targetCtx.moveTo(p0.x, p0.y); targetCtx.lineTo(p1.x, p1.y);
+                targetCtx.stroke();
+
+                // 2. 枠線を引く
+                targetCtx.globalCompositeOperation = 'source-over';
+                targetCtx.strokeStyle = getDrawColor(targetCtx);
+                targetCtx.lineWidth = border;
+                
+                const d = (gutter / 2) + (border / 2);
+                targetCtx.beginPath();
+                targetCtx.moveTo(p0.x + offsetX * d, p0.y + offsetY * d);
+                targetCtx.lineTo(p1.x + offsetX * d, p1.y + offsetY * d);
+                targetCtx.stroke();
+                
+                targetCtx.beginPath();
+                targetCtx.moveTo(p0.x - offsetX * d, p0.y - offsetY * d);
+                targetCtx.lineTo(p1.x - offsetX * d, p1.y - offsetY * d);
+                targetCtx.stroke();
+                
+                updateInfo();
+                saveStateToLocal();
+            }
+
+            targetCtx.restore();
+        }
+
+ 
+        // 形状描画 (mouseup時)
+function finalizeShape(x0, y0, x1, y1) {
+            // ★変更: アクティブレイヤーのコンテキストを取得
+            const targetCtx = getActiveCtx();
+            if (!targetCtx) return;
+
+            saveHistory(); // 描画確定前に保存
+
+            targetCtx.save();
+            if (chkClipSel.checked) {
+                targetCtx.beginPath();
+                targetCtx.rect(parseInt(inputs.selX.value), parseInt(inputs.selY.value), parseInt(inputs.selW.value), parseInt(inputs.selH.value));
+                targetCtx.clip();
             }
 
             const size = parseInt(inputs.brush.value);
-            const mode = document.querySelector('input[name="shape"]:checked').value;
+const mode = document.querySelector('input[name="shape"]:checked').value;
 
-            ctx.fillStyle = getDrawColor();
+            targetCtx.fillStyle = getDrawColor(targetCtx);
             const isErase = currentTool === 'erase';
 
             // 座標計算 (左上基準)
@@ -1260,49 +2112,50 @@
                     let lx = x0 + (x1 - x0) * t;
                     let ly = y0 + (y1 - y0) * t;
 
-                    // 【修正追加】ドットスナップがONの場合、座標を丸める
                     if (chkPixelSnap.checked) {
                         lx = Math.floor(lx);
                         ly = Math.floor(ly);
                     }
 
-                    if (isErase) ctx.clearRect(lx, ly, size, size);
-                    else ctx.fillRect(lx, ly, size, size);
+                    if (isErase) targetCtx.clearRect(lx, ly, size, size);
+                    else targetCtx.fillRect(lx, ly, size, size);
                 }
             } else if (mode === 'rect' || mode === 'square') {
                 if (mode === 'square') { const s = Math.max(w, h); w = s; h = s; }
-                if (isErase) ctx.clearRect(sx, sy, w, h);
-                else ctx.fillRect(sx, sy, w, h);
+                if (isErase) targetCtx.clearRect(sx, sy, w, h);
+                else targetCtx.fillRect(sx, sy, w, h);
+            } else if (mode === 'frame') {
+                // ▼新規追加：コマ枠（中身が抜けた四角形）
+                targetCtx.fillStyle = getDrawColor(targetCtx);
+                if (isErase) {
+                    targetCtx.clearRect(sx, sy, w, size); // 上
+                    targetCtx.clearRect(sx, sy + h - size, w, size); // 下
+                    targetCtx.clearRect(sx, sy, size, h); // 左
+                    targetCtx.clearRect(sx + w - size, sy, size, h); // 右
+                } else {
+                    targetCtx.fillRect(sx, sy, w, size); // 上
+                    targetCtx.fillRect(sx, sy + h - size, w, size); // 下
+                    targetCtx.fillRect(sx, sy, size, h); // 左
+                    targetCtx.fillRect(sx + w - size, sy, size, h); // 右
+                }
             } else if (mode === 'circle') {
                 let cx = sx + w / 2; // 中心X
                 let cy = sy + h / 2; // 中心Y
 
-                // 【修正追加】中心座標を丸める（ピクセル単位スナップ）
                 if (chkPixelSnap.checked) {
                     cx = Math.floor(cx);
                     cy = Math.floor(cy);
                 }
 
-                // ctx.beginPath();
-                // ctx.ellipse(cx, cy, w/2, h/2, 0, 0, Math.PI*2); // <-- これを削除
-                // if(isErase) { ctx.clip(); ctx.clearRect(sx, sy, w, h); } // 簡易消去
-                // else ctx.fill(); // <-- これを削除
-
-                // 【置換】ドット絵専用の円描画関数を呼び出す
-                // 注意: 現在のロジックでは size > 1 の時にクリッピングが正しく動作しない
-                // 簡易対応として、ここでは size=1 のピクセル単位で円を描画し、
-                // sizeを半径として扱うこととする。（複雑なドット絵ツールでは size を無視して1px描画が基本）
-
-                // 既存ブラシサイズの size を使わず、1px 単位で描画する (ドット絵ツールの標準動作)
-                // 楕円半径 (w/2, h/2) を渡す
-                // エラー回避のため、ここでは新しい関数を呼び出す
-                drawDotCircle(cx, cy, w / 2, h / 2, false);
+                // ★変更: drawDotCircleに描画先(targetCtx)を渡す
+                // ※ drawDotCircle関数自体の修正も必要です（下部に記載）
+                drawDotCircle(cx, cy, w / 2, h / 2, targetCtx);
             }
 
-            ctx.restore();
+            targetCtx.restore();
             updateInfo();
-        }
 
+        }
         // === 画像処理エフェクト (フィルタ) ===
 
         function getEffectTargetRegion() {
@@ -1320,101 +2173,143 @@
         }
 
         function applyFilter(type) {
-            const r = getEffectTargetRegion();
-            if (r.w <= 0 || r.h <= 0) return;
+            runHeavyTask(() => {
+                const targetCtx = getActiveCtx();
+                if (!targetCtx) return;
 
-            saveHistory();
-            const imgData = ctx.getImageData(r.x, r.y, r.w, r.h);
-            const d = imgData.data;
+                const r = getEffectTargetRegion();
+                if (r.w <= 0 || r.h <= 0) return;
 
-            if (type === 'mono') {
-                // グレースケール
-                for (let i = 0; i < d.length; i += 4) {
-                    const v = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-                    d[i] = d[i + 1] = d[i + 2] = v;
-                }
-            } else if (type === 'sepia') {
-                // セピア
-                for (let i = 0; i < d.length; i += 4) {
-                    const red = d[i], green = d[i + 1], blue = d[i + 2];
-                    d[i] = Math.min(255, (red * .393) + (green * .769) + (blue * .189));
-                    d[i + 1] = Math.min(255, (red * .349) + (green * .686) + (blue * .168));
-                    d[i + 2] = Math.min(255, (red * .272) + (green * .534) + (blue * .131));
-                }
-            } else if (type === 'mosaic') {
-                // モザイク
-                const size = parseInt(inputs.mosaic.value);
-                const w = r.w;
-                const h = r.h;
-                // ImageDataの操作ではなく、Canvas APIで描画し直す方が簡単で高速
-                // 元の画像データを一時退避して、ブロックごとに塗りつぶす
-                ctx.putImageData(imgData, r.x, r.y); // 一旦戻す(必要ないかもだが整合性のため)
+                saveHistory();
+                
+                const imgData = targetCtx.getImageData(r.x, r.y, r.w, r.h);
+                const d = imgData.data;
 
-                // モザイク処理 (ImageData直接操作版)
-                for (let y = 0; y < h; y += size) {
-                    for (let x = 0; x < w; x += size) {
-                        // ブロックの左上の色を取得
-                        const idx = (y * w + x) * 4;
-                        const red = d[idx];
-                        const green = d[idx + 1];
-                        const blue = d[idx + 2];
-                        const alpha = d[idx + 3];
+                if (type === 'mono') {
+                    for (let i = 0; i < d.length; i += 4) {
+                        const v = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+                        d[i] = d[i + 1] = d[i + 2] = v;
+                    }
+                } else if (type === 'sepia') {
+                    for (let i = 0; i < d.length; i += 4) {
+                        const red = d[i], green = d[i + 1], blue = d[i + 2];
+                        d[i] = Math.min(255, (red * .393) + (green * .769) + (blue * .189));
+                        d[i + 1] = Math.min(255, (red * .349) + (green * .686) + (blue * .168));
+                        d[i + 2] = Math.min(255, (red * .272) + (green * .534) + (blue * .131));
+                    }
+                } else if (type === 'mosaic') {
+                    const size = parseInt($('slider-mosaic').value) || 8;
+                    const w = r.w;
+                    const h = r.h;
+                    
+                    for (let y = 0; y < h; y += size) {
+                        for (let x = 0; x < w; x += size) {
+                            const idx = (y * w + x) * 4;
+                            const red = d[idx];
+                            const green = d[idx + 1];
+                            const blue = d[idx + 2];
+                            const alpha = d[idx + 3];
 
-                        // ブロック内を塗りつぶす
-                        for (let by = 0; by < size && y + by < h; by++) {
-                            for (let bx = 0; bx < size && x + bx < w; bx++) {
-                                const bIdx = ((y + by) * w + (x + bx)) * 4;
-                                d[bIdx] = red;
-                                d[bIdx + 1] = green;
-                                d[bIdx + 2] = blue;
-                                d[bIdx + 3] = alpha;
+                            for (let by = 0; by < size && y + by < h; by++) {
+                                for (let bx = 0; bx < size && x + bx < w; bx++) {
+                                    const bIdx = ((y + by) * w + (x + bx)) * 4;
+                                    d[bIdx] = red;
+                                    d[bIdx + 1] = green;
+                                    d[bIdx + 2] = blue;
+                                    d[bIdx + 3] = alpha;
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            ctx.putImageData(imgData, r.x, r.y);
-            updateInfo();
-             saveStateToLocal(); 
+                targetCtx.putImageData(imgData, r.x, r.y);
+                updateInfo();
+                saveStateToLocal();
+            }, "フィルタ適用中...");
         }
+async function applyOutline() {
+            runHeavyTask(() => {
+                const targetCtx = getActiveCtx();
+                if (!targetCtx) return;
 
+                const r = getEffectTargetRegion();
+                if (r.w <= 0 || r.h <= 0) return;
+
+                const hex = $('inp-outline-color').value;
+                const outR = parseInt(hex.slice(1, 3), 16);
+                const outG = parseInt(hex.slice(3, 5), 16);
+                const outB = parseInt(hex.slice(5, 7), 16);
+                const outA = 255;
+                const width = parseInt($('inp-outline-width').value) || 1;
+
+                saveHistory();
+
+                const imgData = targetCtx.getImageData(r.x, r.y, r.w, r.h);
+                const src = imgData.data;
+                const dstData = targetCtx.createImageData(r.w, r.h);
+                const dst = dstData.data;
+
+                for (let y = 0; y < r.h; y++) {
+                    for (let x = 0; x < r.w; x++) {
+                        const idx = (y * r.w + x) * 4;
+                        const alpha = src[idx + 3];
+
+                        if (alpha > 0) {
+                            dst[idx] = src[idx]; 
+                            dst[idx+1] = src[idx+1];
+                            dst[idx+2] = src[idx+2]; 
+                            dst[idx+3] = src[idx+3];
+                        } else {
+                            let found = false;
+                            for (let dy = -width; dy <= width; dy++) {
+                                for (let dx = -width; dx <= width; dx++) {
+                                    if (dx*dx + dy*dy <= width*width) { 
+                                        const nx = x + dx;
+                                        const ny = y + dy;
+                                        if (nx >= 0 && nx < r.w && ny >= 0 && ny < r.h) {
+                                            const nIdx = (ny * r.w + nx) * 4;
+                                            if (src[nIdx + 3] > 0) { 
+                                                found = true; 
+                                                break; 
+                                            }
+                                        }
+                                    }
+                                }
+                                if (found) break;
+                            }
+
+                            if (found) {
+                                dst[idx] = outR; 
+                                dst[idx+1] = outG;
+                                dst[idx+2] = outB; 
+                                dst[idx+3] = outA;
+                            } else {
+                                dst[idx+3] = 0;
+                            }
+                        }
+                    }
+                }
+
+                targetCtx.putImageData(dstData, r.x, r.y);
+                updateInfo();
+                saveStateToLocal();
+            }, "アウトラインを計算中...");
+        }
         function applyFlip(dir) {
+            // ★変更: アクティブレイヤーのコンテキストを取得
+            const targetCtx = getActiveCtx();
+            if (!targetCtx) return;
+
             const r = getEffectTargetRegion();
             if (r.w <= 0 || r.h <= 0) return;
 
             saveHistory();
 
-            // 一時Canvasを使って反転描画
-            const tempC = document.createElement('canvas');
-            tempC.width = r.w; tempC.height = r.h;
-            const tCtx = tempC.getContext('2d');
-
-            // 元画像を取得して描画
-            tCtx.drawImage(canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
-
-            // 変換設定
-            tCtx.globalCompositeOperation = 'copy';
-            tCtx.save();
-            if (dir === 'h') {
-                tCtx.translate(r.w, 0);
-                tCtx.scale(-1, 1);
-            } else {
-                tCtx.translate(0, r.h);
-                tCtx.scale(1, -1);
-            }
-            tCtx.drawImage(tempC, 0, 0); // 自分自身を描画 (一度バッファされている前提)
-            // 安全のため再取得したデータを使う
-            tCtx.restore();
-
-            // メインキャンバスに書き戻し (ImageData操作よりAPIの方が楽)
-            // 反転したtempCの中身を取得
-            // 注意: drawImage(tempC, 0, 0) だと反転前のものが残る可能性があるため、
-            // 一度クリアするか、ImageDataでピクセル入替する方が確実
-
-            // 手堅くピクセル操作で実装
-            const srcData = ctx.getImageData(r.x, r.y, r.w, r.h);
-            const dstData = ctx.createImageData(r.w, r.h);
+            // 手堅くピクセル操作で実装（元コードのロジックを踏襲）
+            // ★変更: targetCtx から取得
+            const srcData = targetCtx.getImageData(r.x, r.y, r.w, r.h);
+            const dstData = targetCtx.createImageData(r.w, r.h);
             const sd = srcData.data;
             const dd = dstData.data;
 
@@ -1431,122 +2326,151 @@
                     dd[dIdx + 3] = sd[sIdx + 3];
                 }
             }
-            ctx.putImageData(dstData, r.x, r.y);
+            
+            // ★変更: targetCtx に書き戻し
+            targetCtx.putImageData(dstData, r.x, r.y);
+            
             updateInfo();
+            
             saveStateToLocal(); 
         }
-
 
         // === インタラクション系 (マウス/タッチ) ===
 
         function setupDrawingEvents() {
-            // マウス・タッチ共通ハンドラ
             const start = (e) => handleStart(e);
             const move = (e) => handleMove(e);
             const end = (e) => handleEnd(e);
 
-            canvas.addEventListener('mousedown', start);
-            window.addEventListener('mousemove', move); // 画面外ドラッグ対応
+            // 対象を canvasWrapper にすることで、どのレイヤーが上でも反応するようにします
+            canvasWrapper.addEventListener('mousedown', start);
+            window.addEventListener('mousemove', move);
             window.addEventListener('mouseup', end);
 
-            canvas.addEventListener('touchstart', start, { passive: false });
+            canvasWrapper.addEventListener('touchstart', start, { passive: false });
             window.addEventListener('touchmove', move, { passive: false });
             window.addEventListener('touchend', end);
         }
-
-        // sprite_tool.html: 1091行目付近を以下のコードに置き換えてください。
-        // sprite_tool.html: 1091行目付近
-        function getPointerPos(e) {
+function getPointerPos(e) {
             let clientX, clientY;
 
-            // 1. タッチイベントの処理
             if (e.touches || e.changedTouches) {
                 const touch = (e.touches && e.touches.length > 0)
                     ? e.touches[0]
-                    : (e.changedTouches && e.changedTouches.length > 0
-                        ? e.changedTouches[0]
-                        : null);
-
+                    : (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0] : null);
                 if (touch) {
                     clientX = touch.clientX;
                     clientY = touch.clientY;
-                } else {
-                    return null;
-                }
-            }
-            // 2. マウスイベントの処理
-            else if (e.clientX !== undefined) {
+                } else return null;
+            } else {
                 clientX = e.clientX;
                 clientY = e.clientY;
-            } else {
-                return null;
             }
 
-            const rect = canvas.getBoundingClientRect();
+            // ★ 修正: canvas ではなく canvasWrapper の位置を基準にする
+            const rect = canvasWrapper.getBoundingClientRect();
 
-            // スケール逆算 (ビューポート内のキャンバス左上基準の相対座標)
+            // スケール（ズーム）を考慮して座標を計算
             const x = (clientX - rect.left) / currentScale;
             const y = (clientY - rect.top) / currentScale;
-
-            // スクロール加算は行いません (ViewerAreaのスクロールは rect.left/top に含まれると仮定)
 
             return { x, y };
         }
 
-
-        function handleStart(e) {
-            if (e.type === 'mousedown' && e.button !== 0) return; // 左クリック以外無視
-
+function handleStart(e) {
+            if (e.type === 'mousedown' && e.button !== 0) return;
             const pos = getPointerPos(e);
-            if (!pos) return; // 座標が取得できなければ処理中断
+            if (!pos) return;
+            if (e.type.startsWith('mouse') && !canvasWrapper.contains(e.target)) return;
 
-            // e.target !== canvas のチェックを削除または緩和
-            // マウス操作の場合、canvasの外でクリックしたら開始しない（これは必須）
-            if (e.type.startsWith('mouse') && e.target !== canvas) return;
-
-            e.preventDefault(); // スクロール防止
+            e.preventDefault();
 
             startX = pos.x;
             startY = pos.y;
 
-            // 1. 塗りつぶし
+            // ▼▼▼ ★新規追加：移動ツールの開始 ▼▼▼
+            if (currentTool === 'move') {
+                const targetCtx = getActiveCtx();
+                if (!targetCtx) return;
+                
+                saveHistory(); // 移動前の状態を履歴に保存
+
+                isMoving = true;
+                moveStartX = pos.x;
+                moveStartY = pos.y;
+
+                // 選択範囲を取得（なければ全体）
+                let rx = parseInt(inputs.selX.value) || 0;
+                let ry = parseInt(inputs.selY.value) || 0;
+                let rw = parseInt(inputs.selW.value) || CANVAS_W;
+                let rh = parseInt(inputs.selH.value) || CANVAS_H;
+                if(rw === 0 || rh === 0) { rx = 0; ry = 0; rw = CANVAS_W; rh = CANVAS_H; }
+
+                moveOriginalX = rx;
+                moveOriginalY = ry;
+
+                // 選択部分を一時Canvasに退避
+                moveBufferCanvas.width = rw;
+                moveBufferCanvas.height = rh;
+                moveBufferCanvas.getContext('2d').putImageData(targetCtx.getImageData(rx, ry, rw, rh), 0, 0);
+
+                // 元のレイヤーからは画像を消去する（切り取り）
+                targetCtx.clearRect(rx, ry, rw, rh);
+                return; // ここで処理終了
+            }
+            // ▲▲▲ 新規追加ここまで ▲▲▲
+            if (currentTool === 'text') {
+                drawTextEffect(pos.x, pos.y);
+                return;
+            }
+            if (currentTool === 'lineEffect') {
+                drawLineEffect(pos.x, pos.y);
+                return;
+            }
             if (currentTool === 'fill') {
                 saveHistory();
                 fillBucket(pos.x, pos.y);
                 return;
             }
 
-            // 2. 自動選択
             if (isAutoSelecting) {
                 selectByColor(pos.x, pos.y);
                 isAutoSelecting = false;
-                setTool('select'); // 自動的に選択モードに戻る
+                setTool('select');
                 return;
             }
 
-            // 3. 座標選択 (グリッド吸着ロジック修正版)
             if (currentTool === 'select') {
                 handleSelectionStart(pos.x, pos.y);
                 isSelecting = true;
                 return;
             }
 
-            // 4. 描画 (ペン, 消しゴム, スプレー)
             isDrawing = true;
             const isShape = document.querySelector('input[name="shape"]:checked').value !== 'pen';
 
             if (!isShape || currentTool === 'spray') {
-                // フリーハンドまたはスプレーなら即描画
                 drawAt(pos.x, pos.y);
             }
-            // shapeモードの場合は開始点を記録するのみ(mouseupで確定)
         }
-
-        function handleMove(e) {
-            if (!isDrawing && !isSelecting) return;
+function handleMove(e) {
+            if (!isDrawing && !isSelecting && !isMoving) return; // ★ isMoving を条件に追加
             const pos = getPointerPos(e);
+            if (!pos) return;
 
-            if (!pos) return; // 座標が取得できなければ中断
+            // ▼▼▼ ★新規追加：移動中のプレビュー ▼▼▼
+            if (isMoving) {
+                const dx = pos.x - moveStartX;
+                const dy = pos.y - moveStartY;
+                
+                // プレビューキャンバス（最前面）に移動中の画像を半透明で表示
+                previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                previewCtx.globalAlpha = 0.8;
+                previewCtx.drawImage(moveBufferCanvas, moveOriginalX + dx, moveOriginalY + dy);
+                previewCtx.globalAlpha = 1.0;
+                return; // ここで処理終了
+            }
+            // ▲▲▲ 新規追加ここまで ▲▲▲
 
             // 選択ドラッグ
             if (isSelecting) {
@@ -1556,6 +2480,21 @@
 
             // 描画ドラッグ
             if (isDrawing) {
+                                if (currentTool === 'cutter') {
+                    previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                    drawCutter(startX, startY, pos.x, pos.y, true);
+                    return;
+                }
+                                if (currentTool === 'balloon') {
+                    previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                    drawBalloon(startX, startY, pos.x, pos.y, true);
+                    return;
+                }
+                if (currentTool === 'effectLine') {
+                    previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                    drawEffectLine(startX, startY, pos.x, pos.y, true);
+                    return;
+                }
                 const shape = document.querySelector('input[name="shape"]:checked').value;
                 const isShape = shape !== 'pen';
 
@@ -1584,6 +2523,38 @@
         }
 
 function handleEnd(e) {
+            // ▼▼▼ ★新規追加：移動の確定 ▼▼▼
+            if (isMoving) {
+                isMoving = false;
+                const targetCtx = getActiveCtx();
+                if(!targetCtx) return;
+
+                const pos = getPointerPos(e); // ※修正：引数 e を渡すようにしてください
+                if (!pos) return;
+
+                let dx = pos.x - moveStartX;
+                let dy = pos.y - moveStartY;
+                
+                // ドット単位スナップがONなら座標を整数に丸める
+                if (chkPixelSnap.checked) {
+                    dx = Math.round(dx);
+                    dy = Math.round(dy);
+                }
+
+                // プレビューを消去し、アクティブレイヤーに確定書き込み
+                previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                targetCtx.drawImage(moveBufferCanvas, moveOriginalX + dx, moveOriginalY + dy);
+                
+                // ★超便利機能：移動した分だけ、赤い選択枠も一緒に移動させる
+                if (parseInt(inputs.selW.value) > 0) {
+                    inputs.selX.value = moveOriginalX + dx;
+                    inputs.selY.value = moveOriginalY + dy;
+                }
+                
+                updateInfo();
+                saveStateToLocal();
+                return; // ここで処理終了
+            }
             if (isSelecting) {
                 isSelecting = false;
                 // ★追加: 選択範囲の変更後も設定値が変わるため保存
@@ -1591,14 +2562,24 @@ function handleEnd(e) {
                 return;
             }
 
-            if (isDrawing) {
+if (isDrawing) {
                 isDrawing = false;
-
-                // 描画確定前にプレビューを消去 (handleMoveで描画されたものをクリア)
                 previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-
-                const pos = getPointerPos(e); // 修正された getPointerPos を使う
-                if (!pos) return; // 座標が取得できなければ中断
+                const pos = getPointerPos(e);
+                if (!pos) return;
+                if (currentTool === 'cutter') {
+                    drawCutter(startX, startY, pos.x, pos.y, false);
+                    return;
+                }
+                // ▼ 新規追加：フキダシと効果線の確定
+                if (currentTool === 'balloon') {
+                    drawBalloon(startX, startY, pos.x, pos.y, false);
+                    return;
+                }
+                if (currentTool === 'effectLine') {
+                    drawEffectLine(startX, startY, pos.x, pos.y, false);
+                    return;
+                }
 
                 // シェイプ描画の確定
                 if (currentTool !== 'spray') {
@@ -1723,39 +2704,92 @@ function handleEnd(e) {
         }
 
         // === 塗りつぶし (Flood Fill) ===
-        function fillBucket(x, y) {
-            const tx = Math.floor(x);
-            const ty = Math.floor(y);
-            if (tx < 0 || tx >= CANVAS_W || ty < 0 || ty >= CANVAS_H) return;
+async function fillBucket(x, y) {
+            runHeavyTask(() => {
+                const targetCtx = getActiveCtx();
+                if (!targetCtx) return;
 
-            const imgData = ctx.getImageData(0, 0, CANVAS_W, CANVAS_H);
-            const d = imgData.data;
-            const targetColor = getPixelColor(d, tx, ty);
-            const fillColor = parseColor(inputs.color.value, inputs.opacity.value);
+                const useClip = chkClipSel.checked;
+                const selX = parseInt(inputs.selX.value) || 0;
+                const selY = parseInt(inputs.selY.value) || 0;
+                const selW = parseInt(inputs.selW.value) || CANVAS_W;
+                const selH = parseInt(inputs.selH.value) || CANVAS_H;
 
-            if (colorsMatch(targetColor, fillColor, 0)) return; // 同色なら何もしない
+                if (useClip) {
+                    if (x < selX || x >= selX + selW || y < selY || y >= selY + selH) return;
+                }
 
-            const stack = [[tx, ty]];
-            while (stack.length) {
-                const [cx, cy] = stack.pop();
-                const idx = (cy * CANVAS_W + cx) * 4;
+                const tx = Math.floor(x);
+                const ty = Math.floor(y);
+                if (tx < 0 || tx >= CANVAS_W || ty < 0 || ty >= CANVAS_H) return;
 
-                if (cx < 0 || cx >= CANVAS_W || cy < 0 || cy >= CANVAS_H) continue;
-                if (!colorsMatch(getPixelColor(d, cx, cy), targetColor, 0)) continue;
+                const imgData = targetCtx.getImageData(0, 0, CANVAS_W, CANVAS_H);
+                const d = imgData.data;
+                const targetColor = getPixelColor(d, tx, ty);
+                const fillColor = parseColor(inputs.color.value, inputs.opacity.value);
+                const chkDither = document.getElementById('chk-dither');
+                const isDither = chkDither && chkDither.checked;
 
-                // 塗る
-                d[idx] = fillColor.r;
-                d[idx + 1] = fillColor.g;
-                d[idx + 2] = fillColor.b;
-                d[idx + 3] = fillColor.a;
+                if (!isDither && colorsMatch(targetColor, fillColor, 0)) return;
 
-                stack.push([cx + 1, cy]);
-                stack.push([cx - 1, cy]);
-                stack.push([cx, cy + 1]);
-                stack.push([cx, cy - 1]);
-            }
-            ctx.putImageData(imgData, 0, 0);
-            updateInfo(); // <-- プレビュー更新の不具合修正
+                saveHistory();
+
+                const mask = new Uint8Array(CANVAS_W * CANVAS_H);
+                const stack = [[tx, ty]];
+                
+                while (stack.length) {
+                    const [cx, cy] = stack.pop();
+                    const idx = cy * CANVAS_W + cx;
+
+                    if (cx < 0 || cx >= CANVAS_W || cy < 0 || cy >= CANVAS_H) continue;
+
+                    if (useClip) {
+                        if (cx < selX || cx >= selX + selW || cy < selY || cy >= selY + selH) continue;
+                    }
+
+                    if (mask[idx]) continue; 
+
+                    if (colorsMatch(getPixelColor(d, cx, cy), targetColor, 0)) {
+                        mask[idx] = 1; 
+                        stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1],[cx, cy - 1]);
+                    }
+                }
+
+                if (isDither) {
+                    const pCan = document.createElement('canvas');
+                    pCan.width = CANVAS_W; 
+                    pCan.height = CANVAS_H;
+                    const pCtx = pCan.getContext('2d');
+                    pCtx.fillStyle = getDrawColor(pCtx); 
+                    pCtx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+                    
+                    const patternData = pCtx.getImageData(0, 0, CANVAS_W, CANVAS_H).data;
+                    
+                    for (let i = 0; i < mask.length; i++) {
+                        if (mask[i]) {
+                            const j = i * 4;
+                            d[j] = patternData[j];
+                            d[j+1] = patternData[j+1];
+                            d[j+2] = patternData[j+2];
+                            d[j+3] = patternData[j+3];
+                        }
+                    }
+                } else {
+                    for (let i = 0; i < mask.length; i++) {
+                        if (mask[i]) {
+                            const j = i * 4;
+                            d[j] = fillColor.r;
+                            d[j + 1] = fillColor.g;
+                            d[j + 2] = fillColor.b;
+                            d[j + 3] = fillColor.a;
+                        }
+                    }
+                }
+                
+                targetCtx.putImageData(imgData, 0, 0);
+                updateInfo();
+                saveStateToLocal();
+            }, "塗りつぶし処理中...");
         }
 
         function getPixelColor(data, x, y) {
@@ -1782,7 +2816,9 @@ function handleEnd(e) {
             const ty = Math.floor(y);
             if (tx < 0 || tx >= CANVAS_W || ty < 0 || ty >= CANVAS_H) return;
 
-            const imgData = ctx.getImageData(0, 0, CANVAS_W, CANVAS_H);
+const targetCtx = getActiveCtx();
+            if (!targetCtx) return;
+            const imgData = targetCtx.getImageData(0, 0, CANVAS_W, CANVAS_H);
             const d = imgData.data;
             const startColor = getPixelColor(d, tx, ty);
 
@@ -1836,71 +2872,69 @@ function handleEnd(e) {
             }
         }
 
+        function updateOnionSkin() {
+            const onionCanvas = $('onion-canvas');
+            if (!onionCanvas) return;
+            const onionCtx = onionCanvas.getContext('2d');
+            onionCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+            
+            const chkOnion = $('chk-onion-skin');
+            if (!chkOnion || !chkOnion.checked) return;
 
+            // 現在のグリッド情報を計算
+            calculateFrames();
+            if (frameCoordinates.length <= 1) return;
+
+            const curX = parseInt(inputs.selX.value);
+            const curY = parseInt(inputs.selY.value);
+            
+            // 現在の選択範囲が何コマ目かを探す
+            let currentIndex = -1;
+            for (let i = 0; i < frameCoordinates.length; i++) {
+                if (frameCoordinates[i].x === curX && frameCoordinates[i].y === curY) {
+                    currentIndex = i;
+                    break;
+                }
+            }
+
+            // 1つ前のコマが存在すれば、現在の位置に重ねて描画
+            if (currentIndex > 0) {
+                const prevFrame = frameCoordinates[currentIndex - 1];
+                const merged = getMergedCanvas();
+                
+                onionCtx.drawImage(
+                    merged,
+                    prevFrame.x, prevFrame.y, prevFrame.w, prevFrame.h, // コピー元(前コマ)
+                    curX, curY, prevFrame.w, prevFrame.h              // 描画先(今コマ)
+                );
+            }
+        }
         // === UI更新 ===
-
-        function updateInfo() {
+function updateInfo() {
             const x = parseInt(inputs.selX.value) || 0;
             const y = parseInt(inputs.selY.value) || 0;
             const w = parseInt(inputs.selW.value) || 32;
             const h = parseInt(inputs.selH.value) || 32;
 
-
-    if (chkTransformMode.checked && transformOriginalData) {
-        // 現在の選択範囲のサイズ
-        const currentW = w;
-        const currentH = h;
-        const currentX = x;
-        const currentY = y;
-        
-        // 1. ★修正：キャンバス全体をクリアして、オリジナルの描画内容を再描画する★
-        // (これをしないと、変形後の描画と過去の変形後の描画が重なってしまう)
-        
-        // 変形モード中は、履歴の最新データ（モード開始前の画像全体）を取得し、描画し直す必要がある。
-        // ただし、履歴データはImageDataなので、描画には一時Canvasが必要。
-        
-        // **★代替案：オリジナルのデータを復元し、その上に変形結果を重ねて描画する★**
-        
-        // 【変形前の描画を復元するロジックを導入】
-        const restoredData = history[historyIndex]; // 変形開始前の履歴データ
-        if (restoredData) {
-            ctx.putImageData(restoredData, 0, 0);
-        } else {
-            // 履歴データがない場合は全体をクリア (初期状態)
-            ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-        }
-        
-        // 2. 一時Canvasに変形元データを描画
-        const tempC = document.createElement('canvas');
-        tempC.width = transformOriginalW;
-        tempC.height = transformOriginalH;
-        tempC.getContext('2d').putImageData(transformOriginalData, 0, 0);
-
-        // 3. メインCanvasに変形描画（変形元サイズ -> 現在の選択範囲サイズ）
-        ctx.drawImage(
-            tempC,
-            0, 0, transformOriginalW, transformOriginalH, // ソース全体
-            currentX, currentY, currentW, currentH      // デスティネーション
-        );
-    }
-
-            // 選択ボックス更新
+            // 選択ボックスの表示更新
             selectionBox.style.left = x + 'px';
             selectionBox.style.top = y + 'px';
             selectionBox.style.width = w + 'px';
             selectionBox.style.height = h + 'px';
 
-            // プレビュー更新
+            // ★ 修正: プレビュー画像に全レイヤーを統合した画像を使う
+            const mergedCanvas = getMergedCanvas();
+            const dataURL = mergedCanvas.toDataURL();
+
             const prev = $('preview-sprite');
             prev.style.width = w + 'px';
             prev.style.height = h + 'px';
             prev.style.backgroundSize = `${CANVAS_W}px ${CANVAS_H}px`;
-            prev.style.backgroundImage = `url(${canvas.toDataURL()})`;
+            prev.style.backgroundImage = `url(${dataURL})`;
             prev.style.backgroundPosition = `-${x}px -${y}px`;
 
             // CSS出力
-            const css = `
-.sprite {
+            const css = `.sprite {
     width: ${w}px;
     height: ${h}px;
     background-image: url('sprite.webp');
@@ -1908,7 +2942,6 @@ function handleEnd(e) {
 }`.trim();
             $('code-output').textContent = css;
         }
-
 function updateScrollBars() {
             const sx = $('scroll-x-slider');
             const sy = $('scroll-y-slider');
@@ -1954,7 +2987,7 @@ function extractPixelDataFromCanvas() {
     tempCanvas.height = CANVAS_H;
     
     // 現在のキャンバス内容を一時Canvasに描画
-    tempCanvas.getContext('2d').drawImage(canvas, 0, 0);
+     tempCanvas.getContext('2d').drawImage(getMergedCanvas(), 0, 0);
 
     const imgData = tempCanvas.getContext('2d').getImageData(0, 0, CANVAS_W, CANVAS_H);
     const data = imgData.data;
@@ -2089,7 +3122,8 @@ function saveToCellRunnerJSON() {
                         data[index] = r; data[index + 1] = g; data[index + 2] = b; data[index + 3] = a;
                     }
                     
-                    ctx.putImageData(imgData, 0, 0);
+const targetCtx = getActiveCtx();
+                    if (targetCtx) targetCtx.putImageData(imgData, 0, 0);
                     
                     // 5. UI更新
                     drawGrid(); // グリッド線を引き直す
@@ -2122,6 +3156,7 @@ function saveToCellRunnerJSON() {
 
             // スライダーの数値表示更新
             const bindSlider = (inp, disp) => {
+                if (!inp || !disp) return; 
                 inp.addEventListener('input', () => {
                     disp.textContent = inp.value;
                     if (inp === inputs.brush) PIXEL_UNIT = parseInt(inp.value);
@@ -2134,11 +3169,35 @@ function saveToCellRunnerJSON() {
             bindSlider(inputs.mosaic, displayVals.mosaic);
             bindSlider(inputs.tolerance, displayVals.tolerance);
             bindSlider(inputs.quality, displayVals.quality);
+            bindSlider($('inp-cutter-gutter'), $('val-cutter-gutter'));
 
             inputs.zoom.addEventListener('input', updateZoom);
             $('btn-reset-zoom').addEventListener('click', () => { inputs.zoom.value = 100; updateZoom(); });
 
             // キャンバス・グリッド設定
+                        $('sel-canvas-preset').addEventListener('change', (e) => {
+                const val = e.target.value;
+                if (!val) return;
+
+                const [w, h] = val.split(',').map(Number);
+                
+                if (confirm(`${w}x${h} にリサイズします。描画内容はリセットされますがよろしいですか？`)) {
+                    inputs.w.value = w;
+                    inputs.h.value = h;
+                    
+                    // マンガサイズの場合はグリッドも自動調整（任意）
+                    if (w > 500) {
+                        inputs.gridCols.value = 1;
+                        inputs.gridRows.value = 1;
+                    } else {
+                        inputs.gridCols.value = 1;
+                        inputs.gridRows.value = 1;
+                    }
+
+                    setupCanvas(w, h, true); // リセット実行
+                    e.target.value = ""; // 選択を戻しておく
+                }
+            });
             $('btn-resize').addEventListener('click', () => {
                 if (confirm('キャンバスサイズを変更すると描画内容が消えます。よろしいですか？')) {
                     setupCanvas(parseInt(inputs.w.value), parseInt(inputs.h.value), true);
@@ -2149,7 +3208,69 @@ function saveToCellRunnerJSON() {
                     setupCanvas(CANVAS_W, CANVAS_H, true);
                 }
             });
-
+// レイヤーイベント
+            $('btn-add-layer').addEventListener('click', () => { addLayer(); saveHistory(); });
+            $('btn-del-layer').addEventListener('click', () => {
+                if (layers.length <= 1) return alert('最後のレイヤーは削除できません');
+                if (confirm('削除しますか？')) {
+                    layerContainer.removeChild(layers[activeLayerIndex].canvas);
+                    layers.splice(activeLayerIndex, 1);
+                    if (activeLayerIndex >= layers.length) activeLayerIndex = layers.length - 1;
+                    updateLayerDOM(); updateLayerUI(); saveHistory();
+                }
+            });
+            $('layer-opacity').addEventListener('change', (e) => {
+                if(layers[activeLayerIndex]) {
+                    layers[activeLayerIndex].opacity = parseInt(e.target.value) / 100;
+                    updateLayerDOM(); saveHistory();
+                }
+            });
+            $('layer-opacity').addEventListener('input', (e) => {
+                if(layers[activeLayerIndex]) {
+                    layers[activeLayerIndex].opacity = parseInt(e.target.value) / 100;
+                    updateLayerDOM(); // ドラッグ中はDOM更新のみで履歴保存しない
+                }
+            });
+            $('layer-blend').addEventListener('change', (e) => {
+                if(layers[activeLayerIndex]) {
+                    layers[activeLayerIndex].blendMode = e.target.value;
+                    updateLayerDOM(); saveHistory();
+                }
+            });
+            $('btn-layer-up').addEventListener('click', () => {
+                if (activeLayerIndex < layers.length - 1) {
+                    const temp = layers[activeLayerIndex];
+                    layers[activeLayerIndex] = layers[activeLayerIndex + 1];
+                    layers[activeLayerIndex + 1] = temp;
+                    activeLayerIndex++;
+                    updateLayerDOM(); updateLayerUI(); saveHistory();
+                }
+            });
+            $('btn-layer-down').addEventListener('click', () => {
+                if (activeLayerIndex > 0) {
+                    const temp = layers[activeLayerIndex];
+                    layers[activeLayerIndex] = layers[activeLayerIndex - 1];
+                    layers[activeLayerIndex - 1] = temp;
+                    activeLayerIndex--;
+                    updateLayerDOM(); updateLayerUI(); saveHistory();
+                }
+            });
+            $('btn-merge-down').addEventListener('click', () => {
+                if(activeLayerIndex > 0) {
+                    const topLayer = layers[activeLayerIndex];
+                    const bottomLayer = layers[activeLayerIndex - 1];
+                    bottomLayer.ctx.save();
+                    bottomLayer.ctx.globalAlpha = topLayer.opacity;
+                    bottomLayer.ctx.globalCompositeOperation = topLayer.blendMode;
+                    bottomLayer.ctx.drawImage(topLayer.canvas, 0, 0);
+                    bottomLayer.ctx.restore();
+                    
+                    layerContainer.removeChild(topLayer.canvas);
+                    layers.splice(activeLayerIndex, 1);
+                    activeLayerIndex--;
+                    updateLayerDOM(); updateLayerUI(); saveHistory();
+                }
+            });
             // 【新規追加：アニメーションイベント】
             $('btn-anim-play').addEventListener('click', () => toggleAnimation(true));
             $('btn-anim-stop').addEventListener('click', () => toggleAnimation(false));
@@ -2219,14 +3340,14 @@ chkTransformMode.addEventListener('change', () => {
     
     if (chkTransformMode.checked) {
         // 変形モードON: 選択範囲の描画内容を保存 (履歴保存はsaveHistory()で実行済みのはず)
-        if (w > 0 && h > 0) {
+if (w > 0 && h > 0) {
             saveHistory(); // ★変形開始前の状態を履歴に残す★
-            transformOriginalData = ctx.getImageData(x, y, w, h);
-            transformOriginalW = w;
-            transformOriginalH = h;
-            
-            // オリジナル範囲をクリアして、変形準備完了
-            // (変形は updateInfo でリアルタイムに描画される)
+            const targetCtx = getActiveCtx();
+            if (targetCtx) {
+                transformOriginalData = targetCtx.getImageData(x, y, w, h);
+                transformOriginalW = w;
+                transformOriginalH = h;
+            }
         } else {
             // 選択範囲がない場合はモードをOFFに戻す
             chkTransformMode.checked = false;
@@ -2262,15 +3383,22 @@ chkTransformMode.addEventListener('change', () => {
                     w: parseInt(inputs.selW.value), h: parseInt(inputs.selH.value)
                 };
                 if (r.w > 0 && r.h > 0) {
-                    clipboardData = ctx.getImageData(r.x, r.y, r.w, r.h);
+                    // コピーは「見えている状態」をコピーするため統合キャンバスから取得
+                    clipboardData = getMergedCanvas().getContext('2d').getImageData(r.x, r.y, r.w, r.h);
                     $('btn-paste').disabled = false;
                 }
             });
-            $('btn-paste').addEventListener('click', () => {
+$('btn-paste').addEventListener('click', () => {
+                // ★変更: アクティブレイヤーのコンテキストを取得
+                const targetCtx = getActiveCtx();
+                if (!targetCtx) {
+                    alert("レイヤーが選択されていません");
+                    return;
+                }
+
                 if (clipboardData) {
                     saveHistory();
 
-                    // 【修正】自動フィットモードかどうかの確認
                     const autoFit = chkPasteFit.checked;
 
                     if (autoFit) {
@@ -2280,22 +3408,23 @@ chkTransformMode.addEventListener('change', () => {
                         const destW = parseInt(inputs.selW.value);
                         const destH = parseInt(inputs.selH.value);
 
-                        // 1. 一時CanvasにImageDataを描画し、そのCanvasを参照元とする
+                        // 1. 一時CanvasにImageDataを描画
                         const tempC = document.createElement('canvas');
                         tempC.width = clipboardData.width;
                         tempC.height = clipboardData.height;
                         tempC.getContext('2d').putImageData(clipboardData, 0, 0);
 
-                        // 2. メインCanvasに描画（変形ペースト）
-                        ctx.drawImage(
+                        // 2. ★変更: targetCtx に描画（変形ペースト）
+                        targetCtx.drawImage(
                             tempC,
                             0, 0, tempC.width, tempC.height, // ソース (全体)
-                            destX, destY, destW, destH      // デスティネーション (選択範囲の座標とサイズ)
+                            destX, destY, destW, destH      // デスティネーション
                         );
 
                     } else {
-                        // オリジナルサイズモード: 選択範囲の左上隅からそのままのサイズで貼り付け
-                        ctx.putImageData(
+                        // オリジナルサイズモード
+                        // ★変更: targetCtx に貼り付け
+                        targetCtx.putImageData(
                             clipboardData,
                             parseInt(inputs.selX.value),
                             parseInt(inputs.selY.value)
@@ -2305,7 +3434,6 @@ chkTransformMode.addEventListener('change', () => {
                     updateInfo();
                 }
             });
-
             // スクロール同期
             const syncScroll = () => {
                 viewerArea.scrollLeft = $('scroll-x-slider').value;
@@ -2329,35 +3457,47 @@ chkTransformMode.addEventListener('change', () => {
 
             // ファイル保存
             $('btn-save-sheet').addEventListener('click', () => {
+                showLoading("画像を生成中...");
                 const q = parseInt(inputs.quality.value) / 100;
-                canvas.toBlob(blob => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'sprite_sheet.webp';
-                    a.click();
-                }, 'image/webp', q);
+                setTimeout(() => {
+                    getMergedCanvas().toBlob(blob => {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; 
+                        a.download = 'sprite_sheet.webp'; 
+                        a.click();
+                        hideLoading();
+                    }, 'image/webp', q);
+                }, 50);
             });
             $('btn-save-sel').addEventListener('click', () => {
                 const r = {
-                    x: parseInt(inputs.selX.value), y: parseInt(inputs.selY.value),
-                    w: parseInt(inputs.selW.value), h: parseInt(inputs.selH.value)
+                    x: parseInt(inputs.selX.value) || 0, 
+                    y: parseInt(inputs.selY.value) || 0,
+                    w: parseInt(inputs.selW.value) || 0, 
+                    h: parseInt(inputs.selH.value) || 0
                 };
                 if (r.w <= 0 || r.h <= 0) return;
 
-                const tCan = document.createElement('canvas');
-                tCan.width = r.w; tCan.height = r.h;
-                tCan.getContext('2d').drawImage(canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+                showLoading("画像を切り出し中...");
+                setTimeout(() => {
+                    const tCan = document.createElement('canvas');
+                    tCan.width = r.w; 
+                    tCan.height = r.h;
+                    tCan.getContext('2d').drawImage(getMergedCanvas(), r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
 
-                const q = parseInt(inputs.quality.value) / 100;
-                tCan.toBlob(blob => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `sprite_${r.x}_${r.y}.webp`;
-                    a.click();
-                }, 'image/webp', q);
+                    const q = parseInt(inputs.quality.value) / 100;
+                    tCan.toBlob(blob => {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `sprite_${r.x}_${r.y}.webp`;
+                        a.click();
+                        hideLoading();
+                    }, 'image/webp', q);
+                }, 50);
             });
+
 
             // 画像読込
            $('file-load').addEventListener('change', (e) => {
@@ -2387,54 +3527,54 @@ chkTransformMode.addEventListener('change', () => {
             $('btn-paste-img').addEventListener('click', () => {
                 if (!loadedImage) return;
 
-                // 現在選択されているモードを取得
+                const targetCtx = getActiveCtx();
+                if (!targetCtx) return;
+
                 const mode = document.querySelector('input[name="load-mode"]:checked').value;
 
-                saveHistory(); // 履歴保存
+                runHeavyTask(() => {
+                    saveHistory();
 
-                if (mode === 'resize') {
-                    if (confirm('キャンバスサイズを画像に合わせます。描画内容は破棄されますがよろしいですか？')) {
-                        inputs.w.value = loadedImage.width;
-                        inputs.h.value = loadedImage.height;
-                        setupCanvas(loadedImage.width, loadedImage.height, true); // reset
-                        ctx.drawImage(loadedImage, 0, 0);
-                    } else {
-                        return; // キャンセル時は何もしない
+                    if (mode === 'resize') {
+                        if (confirm('キャンバスサイズを画像に合わせます。描画内容は破棄されますがよろしいですか？')) {
+                            inputs.w.value = loadedImage.width;
+                            inputs.h.value = loadedImage.height;
+                            setupCanvas(loadedImage.width, loadedImage.height, true);
+                            getActiveCtx().drawImage(loadedImage, 0, 0);
+                        }
+                    } else if (mode === 'fit') {
+                        targetCtx.drawImage(loadedImage, 0, 0, CANVAS_W, CANVAS_H);
+                    } else if (mode === 'selection') {
+                        const r = {
+                            x: parseInt(inputs.selX.value) || 0, 
+                            y: parseInt(inputs.selY.value) || 0,
+                            w: parseInt(inputs.selW.value) || 0, 
+                            h: parseInt(inputs.selH.value) || 0
+                        };
+
+                        targetCtx.save();
+                        targetCtx.beginPath();
+                        targetCtx.rect(r.x, r.y, r.w, r.h);
+                        targetCtx.clip();
+                        targetCtx.drawImage(loadedImage, r.x, r.y, r.w, r.h);
+                        targetCtx.restore();
                     }
-                } else if (mode === 'fit') {
-                    // キャンバスに合わせて変形
-                    ctx.drawImage(loadedImage, 0, 0, CANVAS_W, CANVAS_H);
-                } else if (mode === 'selection') {
-                    // 選択範囲に貼付
-                    const r = {
-                        x: parseInt(inputs.selX.value), y: parseInt(inputs.selY.value),
-                        w: parseInt(inputs.selW.value), h: parseInt(inputs.selH.value)
-                    };
 
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.rect(r.x, r.y, r.w, r.h);
-                    ctx.clip();
-                    ctx.drawImage(loadedImage, r.x, r.y, r.w, r.h);
-                    ctx.restore();
-                }
-
-                // ★修正点2: 貼り付け後もデータとボタン状態を維持する
-                // loadedImage = null;  <-- 削除
-                // $('btn-paste-img').disabled = true; <-- 削除
-                
-                updateInfo();
-                saveStateToLocal();
+                    updateInfo();
+                    saveStateToLocal();
+                }, "画像を貼り付け中...");
             });
 
             
                         // 【新規追加：ローカルストレージ関連】
             const chkAutoSave = $('chk-auto-save');
             
-            // 初回ロード時に保存データがあるか確認し、読込ボタンを有効化する
-            if (localStorage.getItem(LOCAL_STORAGE_KEY)) {
-                $('btn-load-local').disabled = false;
-            }
+            (async () => {
+                try {
+                    const data = await loadFromDB('autoSaveSlot');
+                    if (data) $('btn-load-local').disabled = false;
+                } catch(e) { console.log("DB初期化待ち"); }
+            })();
 
             // 自動保存チェックボックスのイベント
             chkAutoSave.addEventListener('change', () => {
@@ -2456,11 +3596,33 @@ chkTransformMode.addEventListener('change', () => {
             document.querySelectorAll('input[name="shape"], input[name="effect-target"], input[name="sym"], input[name="load-mode"]').forEach(radio => {
                 radio.addEventListener('change', saveStateToLocal);
             });
-            
+                       $('btn-sel-all').addEventListener('click', () => {
+                inputs.selX.value = 0;
+                inputs.selY.value = 0;
+                inputs.selW.value = CANVAS_W;
+                inputs.selH.value = CANVAS_H;
+                updateInfo();
+                saveStateToLocal();
+            });
+
+            $('btn-sel-clear').addEventListener('click', () => {
+                inputs.selW.value = 0;
+                inputs.selH.value = 0;
+                updateInfo();
+                saveStateToLocal();
+            });
             // チェックボックスの変更時に自動保存をトリガー
             [chkPixelSnap, chkClipSel, chkSelAdd, chkPasteFit].forEach(chk => {
                 chk.addEventListener('change', saveStateToLocal);
             });
+                        const chkOnion = $('chk-onion-skin');
+            if (chkOnion) {
+                chkOnion.addEventListener('change', () => {
+                    updateOnionSkin();
+                    saveStateToLocal();
+                });
+            }
+            $('btn-effect-outline').addEventListener('click', applyOutline);
         }
 
         // === 線形補間描画ユーティリティ ===
@@ -2487,11 +3649,12 @@ chkTransformMode.addEventListener('change', () => {
         }
         // === プレビュー描画ユーティリティ ===
 
-        function drawShapePreview(x0, y0, x1, y1) {
-            previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H); // 常に前フレームを消去
+function drawShapePreview(x0, y0, x1, y1) {
+            // プレビュー用キャンバスをクリア (レイヤー合成とは無関係の独立したキャンバス)
+            previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
             // 形状描画は線の太さを 2px の破線とする
-            previewCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)'; // 黒色で視認性を上げる
+            previewCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
             previewCtx.lineWidth = 2;
             previewCtx.setLineDash([4, 2]); // 破線
 
@@ -2503,7 +3666,7 @@ chkTransformMode.addEventListener('change', () => {
             let w = Math.abs(x1 - x0);
             let h = Math.abs(y1 - y0);
 
-            // スナップ (描画座標がズレないよう、スナップをプレビューにも適用)
+            // スナップ
             if (chkPixelSnap.checked) {
                 sx = Math.floor(sx); sy = Math.floor(sy);
                 w = Math.floor(w); h = Math.floor(h);
@@ -2517,63 +3680,67 @@ chkTransformMode.addEventListener('change', () => {
             } else if (mode === 'rect' || mode === 'square') {
                 if (mode === 'square') { const s = Math.max(w, h); w = s; h = s; }
                 previewCtx.strokeRect(sx, sy, w, h);
+            } else if (mode === 'frame') {
+                // ▼新規追加：コマ枠のプレビュー
+                const size = parseInt(inputs.brush.value) || 1;
+                previewCtx.strokeRect(sx, sy, w, h);
+                // 内側の線も引いて太さを表現
+                if (size > 2) {
+                    previewCtx.strokeRect(sx + size, sy + size, Math.max(0, w - size*2), Math.max(0, h - size*2));
+                }
             } else if (mode === 'circle') {
                 let cx = sx + w / 2;
                 let cy = sy + h / 2;
 
-                // 【修正追加】中心座標を丸める（ピクセル単位スナップ）
                 if (chkPixelSnap.checked) {
                     cx = Math.floor(cx);
                     cy = Math.floor(cy);
                 }
 
-                previewCtx.beginPath();
-                previewCtx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
-                previewCtx.stroke();
+                // ★変更点: drawDotCircle の引数が変わったため修正
+                // 第5引数に描画先として previewCtx を渡す
+                drawDotCircle(cx, cy, w / 2, h / 2, previewCtx);
             }
 
             previewCtx.setLineDash([]); // リセット
         }
-
         // === ドット絵専用 円描画ユーティリティ ===
-        function drawDotCircle(cx, cy, radiusX, radiusY, isPreview = false) {
-            const targetCtx = isPreview ? previewCtx : ctx;
+// 引数 isPreview を廃止し、targetCtx を直接受け取るように変更
+        function drawDotCircle(cx, cy, radiusX, radiusY, targetCtx) {
+            if (!targetCtx) return; // コンテキストが無ければ何もしない
+
             const size = parseInt(inputs.brush.value);
 
-            targetCtx.fillStyle = getDrawColor();
-            const isErase = currentTool === 'erase';
+            // プレビューか本番描画かは context が previewCtx かどうかで判定（必要なら）
+            const isErase = currentTool === 'erase' && targetCtx !== previewCtx;
+
+            targetCtx.fillStyle = (targetCtx === previewCtx) ? 'rgba(0,0,0,0.8)' : getDrawColor(targetCtx); // 色設定
 
             // 中心座標をスナップ
-            if (chkPixelSnap.checked || isPreview) {
+            if (chkPixelSnap.checked || targetCtx === previewCtx) {
                 cx = Math.floor(cx);
                 cy = Math.floor(cy);
             }
 
-            // 楕円を描画する領域をピクセル単位で計算
             const startX = cx - radiusX;
             const endX = cx + radiusX;
             const startY = cy - radiusY;
             const endY = cy + radiusY;
 
-            // (X-CX)^2 / RX^2 + (Y-CY)^2 / RY^2 <= 1 のピクセルを埋める
             for (let y = Math.floor(startY); y <= Math.ceil(endY); y++) {
                 for (let x = Math.floor(startX); x <= Math.ceil(endX); x++) {
-                    // 中心からの距離の二乗を計算
                     const normX = (x - cx) / radiusX;
                     const normY = (y - cy) / radiusY;
 
-                    // 楕円の内部または境界上の点であるかチェック
                     if (normX * normX + normY * normY <= 1) {
-                        // 描画座標をスナップ
                         let dx = x;
                         let dy = y;
 
-                        if (chkPixelSnap.checked || isPreview) {
+                        if (chkPixelSnap.checked || targetCtx === previewCtx) {
                             dx = Math.floor(dx);
                             dy = Math.floor(dy);
                         }
 
-                        // ブラシサイズで描画 (これはピクセル単位描画としては一般的ではないが、既存ブラシサイズを尊重)
                         if (isErase) {
                             targetCtx.clearRect(dx, dy, size, size);
                         } else {
@@ -2583,7 +3750,6 @@ chkTransformMode.addEventListener('change', () => {
                 }
             }
         }
-
         // === アニメーション制御関数 ===
 
         function calculateFrames() {
@@ -2684,6 +3850,16 @@ chkTransformMode.addEventListener('change', () => {
             }
         }
     </script>
+    <!-- 処理中オーバーレイ -->
+    <div id="loading-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:100000; flex-direction:column; align-items:center; justify-content:center; color:white; font-weight:bold;">
+        <div class="spinner" style="width:50px; height:50px; border:5px solid #fff; border-top:5px solid #007bff; border-radius:50%; animation:spin 1s linear infinite; margin-bottom:15px;"></div>
+        <span id="loading-text">処理中...</span>
+    </div>
+
+    <!-- スピナー用のアニメーションCSSをここに追加 -->
+    <style>
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </body>
 
 </html>
