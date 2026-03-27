@@ -3573,53 +3573,43 @@ function updateInfo() {
         selectionBox.style.height = h + 'px';
     }
 
-    // 2. プレビュー（サムネイル）の表示更新を最適化
-    const mergedCanvas = getMergedCanvas();
+    // 2. プレビュー（サムネイル）の表示更新
     const prev = $('preview-sprite');
-    
-    // ▼▼▼ ここから追加・変更 ▼▼▼
     const panel = prev.closest('.control-panel');
-    // パネルが閉じている時は、ブラウザのクラッシュを防ぐため処理をスキップする
+
+    // パネルが開いている時だけ描画処理を行う（閉じている時のブラウザクラッシュ防止）
     if (!panel || !panel.classList.contains('collapsed')) {
         const mergedCanvas = getMergedCanvas();
         let prevCan = prev.querySelector('canvas');
+        
+        // プレビュー用のキャンバスがなければ作成
         if (!prevCan) {
-            prev.innerHTML = ''; // 中身をクリア
-            prev.style.backgroundImage = 'none'; // 既存の重いCSS背景画像を無効化
+            prev.innerHTML = ''; 
+            prev.style.backgroundImage = 'none';
             prevCan = document.createElement('canvas');
             prevCan.style.width = '100%';
             prevCan.style.height = '100%';
             prevCan.style.objectFit = 'contain';
-            prevCan.style.imageRendering = 'pixelated'; // ドット絵対応
+            prevCan.style.imageRendering = 'pixelated';
             prev.appendChild(prevCan);
         }
+
         const pCtx = prevCan.getContext('2d');
 
         if (w > 0 && h > 0) {
+            // 選択範囲を描画
             prevCan.width = w;
             prevCan.height = h;
             pCtx.drawImage(mergedCanvas, x, y, w, h, 0, 0, w, h);
         } else {
+            // キャンバス全体を描画
             prevCan.width = CANVAS_W;
             prevCan.height = CANVAS_H;
             pCtx.drawImage(mergedCanvas, 0, 0);
         }
     }
-    const pCtx = prevCan.getContext('2d');
 
-    if (w > 0 && h > 0) {
-        // 選択範囲がある場合はその部分を切り出して描画
-        prevCan.width = w;
-        prevCan.height = h;
-        pCtx.drawImage(mergedCanvas, x, y, w, h, 0, 0, w, h);
-    } else {
-        // 選択解除時は全体を描画
-        prevCan.width = CANVAS_W;
-        prevCan.height = CANVAS_H;
-        pCtx.drawImage(mergedCanvas, 0, 0);
-    }
-
-    // CSS出力の更新
+    // 3. CSS出力とオニオンスキンの更新（これらはパネルの開閉に関わらず実行）
     $('code-output').textContent = (w > 0) ?
         `.sel { width:${w}px; height:${h}px; background-position:-${x}px -${y}px; }` :
         "選択範囲なし";
