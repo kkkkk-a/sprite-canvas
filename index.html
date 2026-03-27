@@ -3576,18 +3576,34 @@ function updateInfo() {
     // 2. プレビュー（サムネイル）の表示更新を最適化
     const mergedCanvas = getMergedCanvas();
     const prev = $('preview-sprite');
+    
+    // ▼▼▼ ここから追加・変更 ▼▼▼
+    const panel = prev.closest('.control-panel');
+    // パネルが閉じている時は、ブラウザのクラッシュを防ぐため処理をスキップする
+    if (!panel || !panel.classList.contains('collapsed')) {
+        const mergedCanvas = getMergedCanvas();
+        let prevCan = prev.querySelector('canvas');
+        if (!prevCan) {
+            prev.innerHTML = ''; // 中身をクリア
+            prev.style.backgroundImage = 'none'; // 既存の重いCSS背景画像を無効化
+            prevCan = document.createElement('canvas');
+            prevCan.style.width = '100%';
+            prevCan.style.height = '100%';
+            prevCan.style.objectFit = 'contain';
+            prevCan.style.imageRendering = 'pixelated'; // ドット絵対応
+            prev.appendChild(prevCan);
+        }
+        const pCtx = prevCan.getContext('2d');
 
-    // プレビュー用の内部Canvasを取得（無ければ生成）
-    let prevCan = prev.querySelector('canvas');
-    if (!prevCan) {
-        prev.innerHTML = ''; // 中身をクリア
-        prev.style.backgroundImage = 'none'; // 既存の重いCSS背景画像を無効化
-        prevCan = document.createElement('canvas');
-        prevCan.style.width = '100%';
-        prevCan.style.height = '100%';
-        prevCan.style.objectFit = 'contain';
-        prevCan.style.imageRendering = 'pixelated'; // ドット絵対応
-        prev.appendChild(prevCan);
+        if (w > 0 && h > 0) {
+            prevCan.width = w;
+            prevCan.height = h;
+            pCtx.drawImage(mergedCanvas, x, y, w, h, 0, 0, w, h);
+        } else {
+            prevCan.width = CANVAS_W;
+            prevCan.height = CANVAS_H;
+            pCtx.drawImage(mergedCanvas, 0, 0);
+        }
     }
     const pCtx = prevCan.getContext('2d');
 
@@ -3810,6 +3826,11 @@ function setupEventListeners() {
                     
                     const panel = h3.parentElement;
                     panel.classList.toggle('collapsed');
+
+                    // パネルを開いた瞬間に、プレビューの絵を最新状態に復帰させる
+                    if (!panel.classList.contains('collapsed')) {
+                        setTimeout(() => updateInfo(), 10);
+                    }
                 });
             });
 
