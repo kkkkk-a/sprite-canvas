@@ -2926,7 +2926,7 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
             }
 
             // クリック一発で完了するツール群
-            if (currentTool === 'text') { drawTextEffect(pos.x, pos.y); return; }
+            if (currentTool === 'text') { return; } // ★テキストは指が離れた時に処理するので、ここでは何もしない
             if (currentTool === 'fill') { saveHistory(); fillBucket(pos.x, pos.y); return; }
             if (isAutoSelecting) { selectByColor(pos.x, pos.y); isAutoSelecting = false; setTool('select'); return; }
 
@@ -3153,7 +3153,7 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
                 }
             }
         }
-        function handleEnd(e) {
+function handleEnd(e) {
             if (isMoving) {
                 isMoving = false;
                 // 変形中はマウスを離しても確定せず、状態を維持する（続けて操作できるように）
@@ -3164,6 +3164,12 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
             if (isSelecting) {
                 isSelecting = false;
                 saveStateToLocal();
+                return;
+            }
+
+            // テキストツールは「指が完全に離れた瞬間」に実行する（無限ループバグ回避）
+            if (currentTool === 'text') {
+                drawTextEffect(startX, startY);
                 return;
             }
 
