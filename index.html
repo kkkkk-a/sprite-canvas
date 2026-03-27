@@ -2850,7 +2850,11 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
     }
 
             // ★変更：エラー防止のため cancelable か確認してから preventDefault する
-            if (e.cancelable) e.preventDefault();
+if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                document.activeElement.blur(); // 強制的にフォーカスを外す
+            } else if (e.cancelable) {
+                e.preventDefault();
+            }
 
             // 描き始めに消失点を表示
             if (window.drawAllPerspectivePoints) window.drawAllPerspectivePoints();
@@ -3088,6 +3092,7 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
 
             // ▼▼▼ 5. ツールの描画プレビュー（ここが消えていました！） ▼▼▼
             if (isDrawing) {
+                if (currentTool === 'text') return; // ★追加：テキストツール選択中のドラッグによる描画を防ぐ
                 // コマ割り・フキダシ・効果線
                 if (currentTool === 'cutter') {
                     drawCutter(startX, startY, pos.x, pos.y, true);
