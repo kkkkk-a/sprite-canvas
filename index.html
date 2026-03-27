@@ -2054,8 +2054,13 @@ async function drawTextEffect(x, y) {
     const targetCtx = getActiveCtx();
     if (!targetCtx) return;
 
-    const text = $('inp-text-content').value;
-    if (!text) { alert('テキストを入力してください'); return; }
+    let text = $('inp-text-content').value;
+    if (!text) { 
+        // 警告を出すのではなく、その場で入力できるようにダイアログを出す
+        text = prompt('キャンバスに配置するテキストを入力してください', '');
+        if (!text) return; // キャンセルされた場合や空の場合は何もしない
+        $('inp-text-content').value = text; // パネルの入力欄にも反映しておく
+    }
 
     const fontName = $('sel-text-font').value;
     const size = parseInt($('inp-text-size').value) || 16;
