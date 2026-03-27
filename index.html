@@ -2823,7 +2823,9 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
         function handleStart(e) {
             if (e.type === 'mousedown' && e.button !== 0) return;
 
-            // ★追加：マルチタッチ（2本指以上）の場合は描画せず、ブラウザのズーム操作に任せる
+            if (document.activeElement && typeof document.activeElement.blur === 'function') {
+                document.activeElement.blur();
+            }
             if (e.touches && e.touches.length > 1) return;
 
             const pos = getPointerPos(e);
