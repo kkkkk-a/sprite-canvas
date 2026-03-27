@@ -2782,6 +2782,11 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
             window.addEventListener('pointermove', move, { passive: false });
             window.addEventListener('pointerup', end);
             window.addEventListener('pointercancel', end); // ペンが離れたり画面外に出た時用
+                        canvasWrapper.addEventListener('touchmove', (e) => {
+                if (e.touches && e.touches.length === 1) {
+                    if (e.cancelable) e.preventDefault();
+                }
+            }, { passive: false });
         }
         function getPointerPos(e) {
             let clientX, clientY;
