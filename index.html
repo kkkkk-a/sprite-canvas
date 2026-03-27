@@ -163,6 +163,7 @@
             background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
             position: relative;
+            overflow: hidden;
         }
 
         /* キャンバスレイヤー */
@@ -217,7 +218,6 @@
             overflow-y: auto;
             padding-right: 5px;
             user-select: none;
-            /* ★追加：テキストの意図しない選択を防ぐ */
         }
 
                 .control-panel h3 {
@@ -502,6 +502,8 @@
             position: absolute;
             top: 0;
             left: 0;
+            width: 100%;
+            height: 100%;
             image-rendering: pixelated;
         }
 
@@ -902,24 +904,20 @@
 
                 <div class="input-group">
                     <label>フィルタ / 加工</label>
-                    <!-- ▼▼▼ ここを更新：ボタンを増やします ▼▼▼ -->
                     <div class="tool-grid" style="grid-template-columns: repeat(3, 1fr);">
                         <button id="btn-effect-mono">モノクロ</button>
                         <button id="btn-effect-sepia">セピア</button>
                         <button id="btn-effect-mosaic">モザイク</button>
-                        <button id="btn-effect-invert">色反転</button> <!-- ★追加 -->
-                        <button id="btn-effect-tone">トーン化</button> <!-- ★追加 -->
+                        <button id="btn-effect-invert">色反転</button>
+                        <button id="btn-effect-tone">トーン化</button>
                     </div>
-                    <!-- ▲▲▲ 更新ここまで ▲▲▲ -->
                 </div>
 
-                <!-- ▼▼▼ ここを追加：明るさ調整パネル ▼▼▼ -->
                 <div class="input-group">
                     <label>明るさ補正: <span id="val-bright">0</span></label>
                     <input type="range" id="slider-bright" min="-100" max="100" value="0">
                     <button id="btn-effect-bright" class="secondary" style="margin-top:5px;">明るさを適用</button>
                 </div>
-                <!-- ▲▲▲ 追加ここまで ▲▲▲ -->
 
                 <div class="input-group">
                     <label>モザイクサイズ: <span id="val-mosaic">8</span> px</label>
@@ -1048,7 +1046,6 @@
                     <input type="range" id="slider-fps" min="1" max="60" value="12" style="flex-grow:1;">
                 </div>
 
-                <!-- 【修正：アニメーション範囲の追加】 -->
                 <div class="input-group flex-row" style="margin-top: -5px;">
                     <div style="flex:1;">
                         <label style="font-size:0.8rem;">開始フレーム (0):</label>
@@ -1156,8 +1153,8 @@
             tolerance: $('slider-tolerance'),
             quality: $('slider-quality'),
             fps: $('slider-fps'),
-            startFrame: $('inp-start-frame'), // <-- 追加
-            endFrame: $('inp-end-frame'),     // <-- 追加
+            startFrame: $('inp-start-frame'),
+            endFrame: $('inp-end-frame'),
             getAnimMode: () => document.querySelector('input[name="anim-mode"]:checked') ? document.querySelector('input[name="anim-mode"]:checked').value : 'none'
         };
 
@@ -1221,7 +1218,6 @@ function openDB() {
         try {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
             
-            // ★追加: ブラウザ設定によりDBが開けない場合のタイムアウト処理
             const timer = setTimeout(() => {
                 reject(new Error("データベースの接続がタイムアウトしました。プライベートブラウズモード等を確認してください。"));
             }, 5000);
@@ -1240,8 +1236,6 @@ function openDB() {
                 clearTimeout(timer);
                 reject(e.target.error || new Error("データベース接続エラーが発生しました。"));
             };
-            
-            // ★追加: データベースのバージョン競合（複数タブで開いた場合）を検知
             request.onblocked = (e) => {
                 clearTimeout(timer);
                 alert("【警告】データベースが他のタブで開かれているため処理がブロックされました。他のタブを閉じてください。");
@@ -1451,7 +1445,7 @@ function getMergedCanvas() {
 
                 item.appendChild(eyeBtn);
                 item.appendChild(nameSpan);
-                item.appendChild(editBtn); // ★ボタンをリストに追加
+                item.appendChild(editBtn);
                 list.appendChild(item);
             }
             if (layers[activeLayerIndex]) {
@@ -1539,7 +1533,6 @@ function getMergedCanvas() {
             }
         }
 function setupCanvas(w, h, reset = false) {
-            // ★追加: 安全装置
             if (w > 4096 || h > 4096) {
                 alert("サイズが大きすぎます！最大 4096 x 4096 px に制限されます。");
                 w = Math.min(w, 4096);
@@ -1574,7 +1567,6 @@ function setupCanvas(w, h, reset = false) {
                 activeLayerIndex = -1;
                 layerCounter = 1;
 
-                // 最初のレイヤー「背景」を追加
                 addLayer('背景');
 
                 // 履歴（Undo/Redo）をリセット
@@ -1632,7 +1624,6 @@ function setupCanvas(w, h, reset = false) {
         // === ツール制御 ===
 
         function setTool(name) {
-            // 変形ツールからの切り替え時の確定処理（前回追加分）
             if (currentTool === 'move' && transformState) {
                 const targetCtx = getActiveCtx();
                 if (targetCtx) applyTransform(targetCtx);
@@ -1650,7 +1641,6 @@ function setupCanvas(w, h, reset = false) {
                 }
             });
 
-            // ★追加: 形状オプションパネルの表示/非表示切り替え
             const shapeOpts = document.getElementById('shape-options');
             if (shapeOpts) {
                 // ペンか消しゴムの時だけ表示する
@@ -1739,7 +1729,6 @@ function setupCanvas(w, h, reset = false) {
 
             } catch (e) {
                 console.error("保存エラー:", e);
-                // ★追加：容量制限エラーの検知と警告
                 if (e.name === 'QuotaExceededError' || e.message.includes('Quota')) {
                     alert("【警告】ブラウザの保存容量が上限に達しました。\n自動保存が停止しました。不要なレイヤーを削除するか、JSONで書き出してバックアップしてください。");
                     $('chk-auto-save').checked = false;
@@ -1970,10 +1959,6 @@ function drawAt(x, y, isDrag = false, overrideSize = null, overrideOpacityMult =
     });
 }
 
-
-
-
-        // 引数に ctxToAdd を追加し、指定されたコンテキストに描画する
         function drawSpray(cx, cy, ctxToAdd = null) {
             // コンテキストが指定されていなければアクティブレイヤーを使う
             const targetCtx = ctxToAdd || getActiveCtx();
@@ -2984,7 +2969,11 @@ if (document.activeElement && (document.activeElement.tagName === 'INPUT' || doc
             if (!isDrawing && !isSelecting && !isMoving) return;
             let pos = getPointerPos(e);
             if (!pos) return;
-
+            if (isDrawing && (pos.x < -100 || pos.x > CANVAS_W + 100 || pos.y < -100 || pos.y > CANVAS_H + 100)) {
+                isDrawing = false;
+                previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                return;
+            }
             // ▼▼▼ 1. まず画面をクリアしてパース定規を描画（背景） ▼▼▼
             // これを最初にやらないと、ツールのプレビューがパース定規で消されたり、逆に残像が残ったりします
             if (window.drawAllPerspectivePoints) window.drawAllPerspectivePoints();
@@ -3102,9 +3091,9 @@ if (document.activeElement && (document.activeElement.tagName === 'INPUT' || doc
             }
 
 
-            // ▼▼▼ 5. ツールの描画プレビュー（ここが消えていました！） ▼▼▼
+            // ▼▼▼ 5. ツールの描画プレビュー ▼▼▼
             if (isDrawing) {
-                if (currentTool === 'text') return; // ★追加：テキストツール選択中のドラッグによる描画を防ぐ
+                if (currentTool === 'text') return;
                 // コマ割り・フキダシ・効果線
                 if (currentTool === 'cutter') {
                     drawCutter(startX, startY, pos.x, pos.y, true);
@@ -3365,8 +3354,6 @@ function handleEnd(e) {
             runHeavyTask(() => {
                 const targetCtx = getActiveCtx();
                 if (!targetCtx) return;
-
-                // ★追加: クリックした座標のシンメトリーペアを計算
                 const sym = getSymmetryOrigin();
                 const points = [{ x: startX, y: startY }];
                 if (sym) {
@@ -3421,8 +3408,6 @@ function handleEnd(e) {
                         if (cx < 0 || cx >= CANVAS_W || cy < 0 || cy >= CANVAS_H) continue;
                         if (useClip && (cx < selX || cx >= selX + selW || cy < selY || cy >= selY + selH)) continue;
                         if (mask[idx]) continue;
-
-                        // ★追加: アルファロックONかつ透明ピクセルなら浸食させない
                         if (isAlphaLock && d[idx * 4 + 3] === 0) continue;
 
                         if (colorsMatch(getPixelColor(d, cx, cy), targetColor, 0)) {
@@ -3692,7 +3677,6 @@ function updateInfo() {
         }
 
         async function saveToCellRunnerJSON() {
-            // ★追加: ファイル名入力ダイアログ
             let filename = window.prompt("JSONファイル名を入力してください:", "sprite_data");
             if (!filename) return; // キャンセル時は中止
             // 拡張子 .json を自動補完
@@ -3746,8 +3730,6 @@ function loadFromCellRunnerJSON(event) {
     reader.onload = async (e) => {
         try {
             const loadedData = JSON.parse(e.target.result);
-            
-            // ★追加: データが破損していないかの厳密なチェック (バリデーション)
             if (!loadedData || typeof loadedData !== 'object') {
                 throw new Error("無効なJSONデータです。");
             }
@@ -3785,7 +3767,6 @@ function loadFromCellRunnerJSON(event) {
                         await new Promise((resolve) => {
                             const img = new Image();
                             img.onload = () => { newLayer.ctx.drawImage(img, 0, 0); resolve(); };
-                            // ★追加: 1つのレイヤーの画像が壊れていても他を読み込めるようにエラー回避
                             img.onerror = () => { console.warn("画像読み込みスキップ:", lData.name); resolve(); }; 
                             img.src = lData.image;
                         });
@@ -3821,9 +3802,12 @@ function loadFromCellRunnerJSON(event) {
 }
 
 function setupEventListeners() {
-            // ★追加: アコーディオン（折りたたみ）メニューの設定
             document.querySelectorAll('.control-panel h3').forEach(h3 => {
                 h3.addEventListener('click', () => {
+                    isDrawing = false; 
+                    isSelecting = false;
+                    previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                    
                     const panel = h3.parentElement;
                     panel.classList.toggle('collapsed');
                 });
@@ -4009,7 +3993,6 @@ function setupEventListeners() {
                     updateLayerDOM(); updateLayerUI(); saveHistory(true);
                 }
             });
-            // 【新規追加：アニメーションイベント】
             $('btn-anim-play').addEventListener('click', () => toggleAnimation(true));
             $('btn-anim-stop').addEventListener('click', () => toggleAnimation(false));
             inputs.fps.addEventListener('input', () => {
@@ -4020,8 +4003,6 @@ function setupEventListeners() {
                     toggleAnimation(true);
                 }
             });
-
-            // 【新規追加：アニメーション範囲変更時のリセット】
             inputs.startFrame.addEventListener('input', () => {
                 if (animInterval !== null) toggleAnimation(false); // 再生中に変更されたら停止
             });
@@ -4199,7 +4180,6 @@ function setupEventListeners() {
 
             // ファイル保存
             $('btn-save-sheet').addEventListener('click', () => {
-                // ★追加: ファイル名入力ダイアログ
                 let filename = prompt("画像ファイル名を入力してください:", "sprite_sheet");
                 if (!filename) return;
                 if (!filename.toLowerCase().endsWith('.webp')) filename += '.webp';
@@ -4230,7 +4210,6 @@ function setupEventListeners() {
                 };
                 if (r.w <= 0 || r.h <= 0) return alert("選択範囲がありません");
 
-                // ★追加: デフォルト名に座標を入れておくと便利
                 const defaultName = `sprite_${r.x}_${r.y}`;
                 let filename = prompt("切り出しファイル名を入力してください:", defaultName);
                 if (!filename) return;
@@ -4328,8 +4307,6 @@ function setupEventListeners() {
                 }, "画像を貼り付け中...");
             });
 
-
-            // 【新規追加：ローカルストレージ関連】
             const chkAutoSave = $('chk-auto-save');
 
             (async () => {
@@ -4443,7 +4420,6 @@ function setupEventListeners() {
                 }
             } 
             else if ((e.ctrlKey || e.metaKey) && key === 'y') { 
-                // ★追加: Ctrl+Y でやり直し(Redo) Windows標準対応
                 e.preventDefault();
                 restoreHistory(1);
             } else if (key === 'b') { setTool('pen'); }      // B: ペン
@@ -4920,7 +4896,6 @@ function lineInterpolation(x0, y0, x1, y1, size0 = null, size1 = null, op0 = nul
             calculateFrames();
             if (frameCoordinates.length === 0) return alert("コマがありません。");
 
-            // ★追加: ファイル名の入力ダイアログ
             let fileName = prompt("GIFファイル名を入力してください:", "sprite_animation");
             if (!fileName) return; // キャンセルされたら中止
             // 拡張子がなければ付ける
@@ -4982,8 +4957,6 @@ function lineInterpolation(x0, y0, x1, y1, size0 = null, size1 = null, op0 = nul
             calculateFrames();
             if (frameCoordinates.length === 0) return alert("コマがありません。");
             if (!window.MediaRecorder) return alert("このブラウザは録画機能に対応していません。");
-
-            // ★追加: ファイル名の入力ダイアログ
             let fileName = prompt("動画ファイル名を入力してください:", "sprite_animation");
             if (!fileName) return; // キャンセルされたら中止
             // 拡張子がなければ付ける
@@ -5054,8 +5027,6 @@ function lineInterpolation(x0, y0, x1, y1, size0 = null, size1 = null, op0 = nul
         </div>
         <span id="loading-text">処理中...</span>
     </div>
-
-    <!-- スピナー用のアニメーションCSSをここに追加 -->
     <style>
         @keyframes spin {
             0% {
