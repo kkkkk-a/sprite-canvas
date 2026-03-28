@@ -12,7 +12,7 @@
         rel="stylesheet">
     <script>window.global = window;</script> <!-- ★一番最初にこれを定義 -->
     <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
-
+<script src="https://unpkg.com/mp4-muxer/build/mp4-muxer.js"></script>
     <link rel="icon" type="image/png" href="favicon.ico">
     <style>
         /* ------------------------------------- */
@@ -361,17 +361,37 @@
             text-align: right;
         }
 
-        #preview-sprite {
-            width: 100%;
-            height: 64px;
-            border: 1px solid #ccc;
-            background-color: #eee;
-            background-repeat: no-repeat;
-            image-rendering: pixelated;
-            margin-top: 5px;
-            background-origin: border-box;
-        }
+#preview-sprite {
+    width: 100%;
+    height: auto;
+    min-height: 100px;
+    padding: 20px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #ddd;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+}
 
+/* プレビューキャンバス：サイズ固定を全削除！ */
+#preview-sprite canvas {
+     position: static !important;
+    background-image:
+        linear-gradient(45deg, #eee 25%, transparent 25%),
+        linear-gradient(-45deg, #eee 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #eee 75%),
+        linear-gradient(-45deg, transparent 75%, #eee 75%);
+    background-size: 10px 10px;
+    background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+    background-color: #fff;
+    
+    border: 2px solid #333;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    
+    image-rendering: pixelated;
+    /* width, height の固定指定はもうしません */
+}
         pre {
             background: #2d2d2d;
             color: #f8f8f2;
@@ -519,6 +539,7 @@
         #selection-box {
             z-index: 10002;
         }
+
     </style>
 </head>
 
@@ -1029,6 +1050,7 @@
                 <div class="flex-row" style="margin-top:10px;">
                     <button id="btn-export-gif" style="background-color:#ff9800;">GIF 書き出し</button>
                     <button id="btn-export-webm" style="background-color:#17a2b8;">WebM (動画) 書き出し</button>
+<button id="btn-export-mp4" style="background-color:#28a745; font-size:0.85rem; padding:8px 4px; font-weight:bold;">MP4 (推奨)</button>
                 </div>
                 <div class="input-group">
                     <label style="font-weight:bold;">
@@ -1301,6 +1323,9 @@ function openDB() {
             // 4. 初期状態の表示更新
             updateZoom();
             setTool('select');
+
+            // ★これを追加: ページを開いた瞬間に選択枠をグリッドサイズに合わせる
+            $('btn-update-grid').click();
         });
         function addLayer(name = null) {
             const canvas = document.createElement('canvas');
@@ -1533,60 +1558,46 @@ function getMergedCanvas() {
             }
         }
 function setupCanvas(w, h, reset = false) {
-            if (w > 4096 || h > 4096) {
-                alert("サイズが大きすぎます！最大 4096 x 4096 px に制限されます。");
-                w = Math.min(w, 4096);
-                h = Math.min(h, 4096);
-                // 入力欄も書き換える
-                inputs.w.value = w;
-                inputs.h.value = h;
-            }
-            if (w * h > 16777216) { // 4K解像度相当以上
-                 if(!confirm("解像度が非常に高く、動作が重くなる可能性があります。続行しますか？")) return;
-            }
+    // ★数値チェックを追加：NaNや0以下の場合はデフォルト値にする
+    w = parseInt(w);
+    h = parseInt(h);
+    if (isNaN(w) || w <= 0) w = 640;
+    if (isNaN(h) || h <= 0) h = 320;
 
-            CANVAS_W = w;
-            CANVAS_H = h;
+    CANVAS_W = w;
+    CANVAS_H = h;
 
-            // プレビュー用とグリッド用のキャンバスサイズを設定
-            [previewCanvas, gridCanvas].forEach(c => {
-                c.width = w;
-                c.height = h;
-                c.style.width = w + 'px';
-                c.style.height = h + 'px';
-            });
+    // 入力欄も正しい数値に書き戻す
+    inputs.w.value = w;
+    inputs.h.value = h;
 
-            // キャンバス全体の枠組みのサイズを設定
-            canvasWrapper.style.width = w + 'px';
-            canvasWrapper.style.height = h + 'px';
+    [previewCanvas, gridCanvas, $('onion-canvas')].forEach(c => {
+         if (!c) return;
+        c.width = w;
+        c.height = h;
+        c.style.width = w + 'px';
+        c.style.height = h + 'px';
+    });
 
-            if (reset) {
-                // レイヤーを空っぽにする
-                layerContainer.innerHTML = '';
-                layers = [];
-                activeLayerIndex = -1;
-                layerCounter = 1;
+    canvasWrapper.style.width = w + 'px';
+    canvasWrapper.style.height = h + 'px';
 
-                addLayer('背景');
+    if (reset) {
+        layerContainer.innerHTML = '';
+        layers = [];
+        activeLayerIndex = -1;
+        layerCounter = 1;
+        addLayer('背景');
+        history = [];
+        historyIndex = -1;
+        saveHistory();
+        drawGrid();
+    }
 
-                // 履歴（Undo/Redo）をリセット
-                history = [];
-                historyIndex = -1;
-                saveHistory();
-
-                // グリッド線を引き直す
-                drawGrid();
-
-                // 選択範囲のサイズを、今のグリッド設定に合わせて計算
-                const cols = parseInt(inputs.gridCols.value) || 10;
-                const rows = parseInt(inputs.gridRows.value) || 5;
-                inputs.selW.value = Math.floor(w / cols);
-                inputs.selH.value = Math.floor(h / rows);
-            }
-
-            updateScrollBars(); // スクロールバーの長さを調整
-            updateInfo();       // プレビュー表示などを更新
-        }
+    updateScrollBars();
+    updateInfo();
+     calculateFrames();
+}
 
         function restoreHistory(offset) {
             const nextIndex = historyIndex + offset;
@@ -2777,6 +2788,14 @@ function drawCutter(x0, y0, x1, y1, isPreview = false) {
                     if (e.cancelable) e.preventDefault();
                 }
             }, { passive: false });
+                        window.addEventListener('pointerdown', (e) => {
+                if (!canvasWrapper.contains(e.target)) {
+                    isDrawing = false;
+                    isSelecting = false;
+                    isMoving = false;
+                    previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+                }
+            }, { capture: true }); // capture: true で最優先で処理させる
         }
         function getPointerPos(e) {
             let clientX, clientY;
@@ -3573,50 +3592,28 @@ function updateInfo() {
         selectionBox.style.height = h + 'px';
     }
 
-    // 2. プレビュー（サムネイル）の表示更新
-    const prev = $('preview-sprite');
-    const panel = prev.closest('.control-panel');
-
-    // パネルが開いている時だけ描画処理を行う（閉じている時のブラウザクラッシュ防止）
-    if (!panel || !panel.classList.contains('collapsed')) {
-        const mergedCanvas = getMergedCanvas();
-        let prevCan = prev.querySelector('canvas');
+    // 2. プレビュー枠を「現在選択されているコマ」に自動で合わせる
+    if (animInterval === null) {
+        calculateFrames(); // 最新のグリッド情報を取得
+        let targetFrame = currentFrame;
         
-        // プレビュー用のキャンバスがなければ作成
-        if (!prevCan) {
-            prev.innerHTML = ''; 
-            prev.style.backgroundImage = 'none';
-            prevCan = document.createElement('canvas');
-            prevCan.style.width = '100%';
-            prevCan.style.height = '100%';
-            prevCan.style.objectFit = 'contain';
-            prevCan.style.imageRendering = 'pixelated';
-            prev.appendChild(prevCan);
+        // 現在の赤枠 (x, y) がどのコマかを探す
+        const foundIndex = frameCoordinates.findIndex(f => f.x === x && f.y === y);
+        if (foundIndex !== -1) {
+            targetFrame = foundIndex;
+            currentFrame = targetFrame; // アニメーションの開始位置もここにする
         }
-
-        const pCtx = prevCan.getContext('2d');
-
-        if (w > 0 && h > 0) {
-            // 選択範囲を描画
-            prevCan.width = w;
-            prevCan.height = h;
-            pCtx.drawImage(mergedCanvas, x, y, w, h, 0, 0, w, h);
-        } else {
-            // キャンバス全体を描画
-            prevCan.width = CANVAS_W;
-            prevCan.height = CANVAS_H;
-            pCtx.drawImage(mergedCanvas, 0, 0);
-        }
+        updateAnimationPreview(targetFrame);
     }
 
-    // 3. CSS出力とオニオンスキンの更新（これらはパネルの開閉に関わらず実行）
     $('code-output').textContent = (w > 0) ?
         `.sel { width:${w}px; height:${h}px; background-position:-${x}px -${y}px; }` :
         "選択範囲なし";
         
     if (typeof updateOnionSkin === 'function') updateOnionSkin();
 }
-        function updateScrollBars() {
+
+function updateScrollBars() {
             const sx = $('scroll-x-slider');
             const sy = $('scroll-y-slider');
             const vSliderWrapper = $('v-slider-wrapper');
@@ -3806,20 +3803,52 @@ function loadFromCellRunnerJSON(event) {
     reader.onerror = () => alert("ファイルの読み込み中に予期せぬエラーが発生しました。");
     reader.readAsText(file);
 }
+// --- デバッグ用：パネル開閉と計算の監視 ---
+function debugPreviewPanel(action, data = {}) {
+    const timestamp = new Date().toLocaleTimeString();
+    // 正しいプロパティ名でチェック
+    if (isNaN(data.CANVAS_W) || isNaN(data.CANVAS_H)) {
+        console.error("【本当の警告】キャンバスサイズが不正です");
+    }
+}
 
+// 既存の calculateFrames を拡張してログを仕込む
+const originalCalculateFrames = window.calculateFrames;
+window.calculateFrames = function() {
+    const start = performance.now();
+    const cols = parseInt(inputs.gridCols.value);
+    const rows = parseInt(inputs.gridRows.value);
+    
+    debugPreviewPanel("calculateFrames 開始", { cols, rows, CANVAS_W, CANVAS_H });
+
+    // 元の関数を実行
+    if (originalCalculateFrames) originalCalculateFrames();
+
+    const end = performance.now();
+    console.log(`%c[DEBUG] calculateFrames 完了 (所要時間: ${(end - start).toFixed(2)}ms, 生成コマ数: ${frameCoordinates.length})`, "color: #00bb00;");
+};
 function setupEventListeners() {
+// ★アコーディオン（折りたたみ）メニューの設定
             document.querySelectorAll('.control-panel h3').forEach(h3 => {
-                h3.addEventListener('click', () => {
-                    isDrawing = false; 
+                h3.addEventListener('mousedown', () => { // clickではなくmousedown(指が触れた瞬間)に実行
+                    // すべての操作フラグを強制的に折る（ロック解除）
+                    isDrawing = false;
                     isSelecting = false;
+                    isMoving = false;
+                    // プレビュー用キャンバスを一旦クリアして計算の連鎖を止める
                     previewCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-                    
+                });
+
+                h3.addEventListener('click', () => {
                     const panel = h3.parentElement;
                     panel.classList.toggle('collapsed');
-
-                    // パネルを開いた瞬間に、プレビューの絵を最新状態に復帰させる
+                    
+                    // パネルが開いた後の再計算を少し遅らせて実行（レイアウト確定後）
                     if (!panel.classList.contains('collapsed')) {
-                        setTimeout(() => updateInfo(), 10);
+                        setTimeout(() => {
+                            calculateFrames();
+                            updateInfo();
+                        }, 50);
                     }
                 });
             });
@@ -4784,59 +4813,92 @@ function lineInterpolation(x0, y0, x1, y1, size0 = null, size1 = null, op0 = nul
         }
         // === アニメーション制御関数 ===
 
-        function calculateFrames() {
-            const cols = parseInt(inputs.gridCols.value);
-            const rows = parseInt(inputs.gridRows.value);
-            const frameW = CANVAS_W / cols;
-            const frameH = CANVAS_H / rows;
+function calculateFrames() {
+    // ★数値が正常であることを確認してから計算する
+    let cols = parseInt(inputs.gridCols.value);
+    let rows = parseInt(inputs.gridRows.value);
+    let cw = parseInt(CANVAS_W);
+    let ch = parseInt(CANVAS_H);
 
-            frameCoordinates = [];
+    if (isNaN(cols) || cols <= 0) cols = 1;
+    if (isNaN(rows) || rows <= 0) rows = 1;
+    if (isNaN(cw) || cw <= 0) cw = 640;
+    if (isNaN(ch) || ch <= 0) ch = 320;
 
-            for (let r = 0; r < rows; r++) {
-                for (let c = 0; c < cols; c++) {
-                    frameCoordinates.push({
-                        x: Math.floor(c * frameW),
-                        y: Math.floor(r * frameH),
-                        w: Math.floor(frameW),
-                        h: Math.floor(frameH)
-                    });
-                }
-            }
+    const frameW = cw / cols;
+    const frameH = ch / rows;
 
-            // アニメーション範囲の初期化/更新
-            currentFrame = 0;
-            const maxFrames = frameCoordinates.length;
-            inputs.endFrame.value = maxFrames > 0 ? maxFrames - 1 : 0; // 最大フレーム番号を自動設定 (0ベース)
+    frameCoordinates = [];
 
-            $('current-frame-info').textContent = `${maxFrames > 0 ? 1 : 0} / ${maxFrames}`;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            frameCoordinates.push({
+                x: Math.floor(c * frameW),
+                y: Math.floor(r * frameH),
+                w: Math.floor(frameW),
+                h: Math.floor(frameH)
+            });
         }
+    }
 
-        function updateAnimationPreview(frameIndex) {
-            if (frameCoordinates.length === 0) {
-                calculateFrames(); // フレーム計算がまだなら実行
-                if (frameCoordinates.length === 0) return; // まだフレームがない場合は終了
-            }
+    currentFrame = 0;
+    const maxFrames = frameCoordinates.length;
+    inputs.endFrame.value = maxFrames > 0 ? maxFrames - 1 : 0;
+    $('current-frame-info').textContent = `${maxFrames > 0 ? 1 : 0} / ${maxFrames}`;
+}
+function updateAnimationPreview(frameIndex) {
+    if (frameCoordinates.length === 0) {
+        calculateFrames(); 
+        if (frameCoordinates.length === 0) return; 
+    }
 
-            const frame = frameCoordinates[frameIndex % frameCoordinates.length];
+    if (frameIndex < 0 || frameIndex >= frameCoordinates.length) frameIndex = 0;
+    const frame = frameCoordinates[frameIndex];
 
-            // プレビュー表示
-            const prev = $('preview-sprite');
-            prev.style.width = frame.w + 'px';
-            prev.style.height = frame.h + 'px';
-            prev.style.backgroundPosition = `-${frame.x}px -${frame.y}px`;
+    const prev = document.getElementById('preview-sprite');
+    if (!prev) return;
+    let prevCan = prev.querySelector('canvas');
 
-            // 情報更新
-            $('current-frame-info').textContent = `${frameIndex + 1} / ${frameCoordinates.length}`;
+    if (!prevCan) {
+        prev.innerHTML = '';
+        prevCan = document.createElement('canvas');
+        prev.appendChild(prevCan);
+    }
 
-            // 選択範囲のUIも追従させるかはお好みで（今回はプレビューのみ）
-            // inputs.selX.value = frame.x;
-            // inputs.selY.value = frame.y;
-            // inputs.selW.value = frame.w;
-            // inputs.selH.value = frame.h;
-            // updateInfo(); // updateInfo内でもプレビューを更新しているので、競合する可能性あり
-        }
+    // 1. 内部の解像度は、選択範囲（コマ）と全く同じにする
+    prevCan.width = frame.w || 1;
+    prevCan.height = frame.h || 1;
 
-        function toggleAnimation(play) {
+    // ★2. 表示サイズ（見た目の大きさ）の自動計算
+    // パネル枠内に収まる最大サイズ（横240px, 縦240px）を設定
+    const MAX_W = 240; 
+    const MAX_H = 240;
+    
+    // 縦横比を【絶対に崩さずに】最大サイズに収めるための倍率を計算
+    const scale = Math.min(MAX_W / prevCan.width, MAX_H / prevCan.height);
+    
+    // 計算した見た目のサイズを適用
+    prevCan.style.width = Math.floor(prevCan.width * scale) + 'px';
+    prevCan.style.height = Math.floor(prevCan.height * scale) + 'px';
+
+    const pCtx = prevCan.getContext('2d');
+    const mergedCanvas = getMergedCanvas();
+    
+    pCtx.imageSmoothingEnabled = false;
+    pCtx.clearRect(0, 0, prevCan.width, prevCan.height);
+    
+    // そのままのサイズで描画
+    pCtx.drawImage(
+        mergedCanvas, 
+        frame.x, frame.y, frame.w, frame.h, 
+        0, 0, prevCan.width, prevCan.height
+    );
+
+    const infoSpan = document.getElementById('current-frame-info');
+    if (infoSpan) infoSpan.textContent = `${frameIndex + 1} / ${frameCoordinates.length}`;
+}
+
+function toggleAnimation(play) {
             const btnPlay = $('btn-anim-play');
             const btnStop = $('btn-anim-stop');
 
@@ -5029,6 +5091,117 @@ function lineInterpolation(x0, y0, x1, y1, size0 = null, size1 = null, op0 = nul
             drawNextFrame();
         });
 
+        // ▼ MP4動画の書き出し（WebCodecs API ＋ mp4-muxer 方式）
+        $('btn-export-mp4').addEventListener('click', async () => {
+            calculateFrames();
+            if (frameCoordinates.length === 0) return alert("コマがありません。");
+            
+            // 最新のブラウザ技術(WebCodecs)が使えるかチェック
+            if (typeof VideoEncoder === 'undefined') {
+                return alert("お使いのブラウザはMP4の高画質書き出しに対応していません。Chrome等の最新ブラウザをご利用ください。");
+            }
+
+            let fileName = prompt("動画ファイル名を入力してください:", "sprite_animation");
+            if (!fileName) return; // キャンセルされたら中止
+            if (!fileName.toLowerCase().endsWith('.mp4')) fileName += '.mp4';
+
+            showLoading("MP4動画をエンコード中...");
+
+            try {
+                const fps = parseInt(inputs.fps.value) || 12;
+                const start = parseInt(inputs.startFrame.value) || 0;
+                const end = parseInt(inputs.endFrame.value) || frameCoordinates.length - 1;
+                
+                const frameW = frameCoordinates[0].w;
+                const frameH = frameCoordinates[0].h;
+
+                // ★神機能：ドット絵がSNSで小さくならないよう、最低240px以上になるよう自動で「等倍拡大」する
+                const MIN_SIZE = 240;
+                let scale = 1;
+                if (frameW < MIN_SIZE || frameH < MIN_SIZE) {
+                    scale = Math.max(1, Math.ceil(MIN_SIZE / Math.max(frameW, frameH)));
+                }
+
+                // MP4(H.264)の仕様上、縦横の解像度は絶対に「偶数」である必要があります
+                let width = frameW * scale;
+                let height = frameH * scale;
+                if (width % 2 !== 0) width++;
+                if (height % 2 !== 0) height++;
+
+                // mp4-muxer のセットアップ
+                const muxer = new Mp4Muxer.Muxer({
+                    target: new Mp4Muxer.ArrayBufferTarget(),
+                    video: { codec: 'avc', width: width, height: height },
+                    fastStart: 'in-memory'
+                });
+
+                // WebCodecs エンコーダーの準備
+                const videoEncoder = new VideoEncoder({
+                    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+                    error: (e) => console.error("エンコードエラー:", e)
+                });
+
+                videoEncoder.configure({
+                    codec: 'avc1.42001f', // H.264 Baseline Profile (最も汎用性が高い)
+                    width: width,
+                    height: height,
+                    bitrate: 2_000_000,   // 2Mbps（ドット絵には十分すぎる高画質）
+                    framerate: fps
+                });
+
+                const sourceCanvas = getMergedCanvas();
+                const offscreenCanvas = document.createElement('canvas');
+                offscreenCanvas.width = width;
+                offscreenCanvas.height = height;
+                const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+
+                const durationPerFrame = 1000000 / fps; // マイクロ秒単位での1フレームの時間
+                let frameCount = 0;
+
+                for (let i = start; i <= end; i++) {
+                    const idx = i % frameCoordinates.length;
+                    const frame = frameCoordinates[idx];
+
+                    // MP4は透明背景をサポートしないので、背景を白で塗りつぶす
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, width, height);
+                    
+                    // ドット絵をぼやけさせずに拡大描画
+                    ctx.imageSmoothingEnabled = false; 
+                    ctx.drawImage(sourceCanvas, frame.x, frame.y, frame.w, frame.h, 0, 0, width, height);
+
+                    // フレームをエンコーダーに渡す
+                    const videoFrame = new VideoFrame(offscreenCanvas, {
+                        timestamp: frameCount * durationPerFrame
+                    });
+
+                    videoEncoder.encode(videoFrame);
+                    videoFrame.close();
+                    frameCount++;
+                }
+
+                // 全てのフレームの処理が終わるのを待つ
+                await videoEncoder.flush();
+                muxer.finalize();
+
+                // 出来上がったMP4データをBlobにしてダウンロード
+                const buffer = muxer.target.buffer;
+                const blob = new Blob([buffer], { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                a.click();
+                URL.revokeObjectURL(url);
+
+            } catch (e) {
+                console.error(e);
+                alert("MP4生成エラー: " + e.message);
+            } finally {
+                hideLoading();
+            }
+        });
     </script>
     <!-- 処理中オーバーレイ -->
     <div id="loading-overlay"
